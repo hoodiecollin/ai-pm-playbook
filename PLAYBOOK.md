@@ -31,8 +31,7 @@ Plus one structural mechanism and one hard rule:
 this model (and the ForgeDB board itself, until 2026-07-30) carried them; they were **deleted**.
 They created a parallel decomposition scheme — a second source of truth that drifts — and tempted
 work to be sliced by a guessed number instead of by *when it ships* and *what it is*. If you are
-migrating a board that has them, **remove the fields and any view that depends on them** (§8, and
-GAP-AUDIT.md for the per-project list).
+migrating a board that has them, **remove the fields and any view that depends on them** (§8).
 
 Why so spartan: two axes you can read off an issue at a glance, with mechanical rules between
 them, beat a rich field matrix nobody keeps current. Everything downstream — the roadmap page,
@@ -343,7 +342,7 @@ Standing rules that keep Issues the single, always-current source of truth:
 2. In the UI, set the **group-by** on the Release-spine / Surface / Execution boards (grouping
    isn't scriptable).
 3. **If migrating an existing board: delete the `Priority`, `Size`, and `Workstream`/`Area`
-   fields and every view that filters or groups by them** (GAP-AUDIT.md lists them per project).
+   fields and every view that filters or groups by them**.
 4. Copy `.github/ISSUE_TEMPLATE/*` into the repo.
 5. Define this product's **`surface:*`** labels — only if it ships more than one artifact.
 6. Seed `VERSION_ROADMAP.md` + `WHAT_IT_IS.md` (§10) and put the two-axis model + doctrine into
