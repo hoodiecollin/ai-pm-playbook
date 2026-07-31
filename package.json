@@ -1,0 +1,11 @@
+{
+  "name": "ai-pm-playbook",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bootstrap": "bun scripts/bootstrap-pm.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
