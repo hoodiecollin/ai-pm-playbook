@@ -9,7 +9,15 @@ npx ai-pm-playbook check         # exit 1 if the backlog violates an invariant
 ```
 
 Works with any agent harness that reads repo files — Claude Code, Cursor, Codex, Copilot, Gemini,
-Windsurf, or your own. There is no plugin to install and no MCP server to run.
+Windsurf, or your own. No MCP server to run.
+
+Claude Code users can additionally install the plugin, which adds slash commands and a hook that
+blocks invariant-violating `gh issue` calls *before they run*:
+
+```
+/plugin marketplace add hoodiecollin/ai-pm-playbook
+/plugin install pm-playbook@pm-playbook
+```
 
 ---
 
@@ -73,6 +81,7 @@ paragraph they half-loaded.
 | `PM100` | vendored doctrine matches the installed package *(warn)* | — |
 | `PM101` | agent instruction files carry the stanza *(warn)* | — |
 | `PM102` | no markdown shadow backlog *(warn)* | 11 |
+| `PM103` | label migrations from a newer version have been applied *(warn)* | — |
 
 Every violation carries an **executable fix**, and `--json` emits the whole report — that's the
 agent-facing interface. A harness can feed violations straight back to a model:
@@ -95,6 +104,7 @@ agent-facing interface. A harness can feed violations straight back to a model:
 | `check` | Lint the backlog. `--no-remote` for local-only, `--json` for agents, `--strict` to fail on warnings. |
 | `release-check vX.Y.Z` | "Can we tag?" Exit 1 if the milestone is gated or incomplete. |
 | `scope-check <pr>` | Cycle-scope gate: refuse a PR that lands next-cycle work on the integration branch. |
+| `migrate` | Apply label renames/removals after a MAJOR upgrade. Previews by default; `--yes` applies. |
 | `rules` | Print the rule index. |
 
 `init` deliberately does **not** touch GitHub unless you pass `--repo`: provisioning labels mutates
@@ -121,6 +131,34 @@ constant to keep updated:
 - run: npx ai-pm-playbook scope-check ${{ github.event.pull_request.number }}
   env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
 ```
+
+## The Claude Code plugin (optional)
+
+The vendored-doctrine path above already works in Claude Code — this adds enforcement *earlier* in
+the loop.
+
+```
+/plugin marketplace add hoodiecollin/ai-pm-playbook
+/plugin install pm-playbook@pm-playbook
+```
+
+| Component | What it does |
+|---|---|
+| **Skill** `pm-playbook` | The always-true core, loaded on demand. Defers to `.pm-playbook/` when the repo has it, since that copy is version-pinned to what the project actually adopted. |
+| `/pm-playbook:check` | Runs the linter and *fixes* what it finds, rather than reporting it back. |
+| `/pm-playbook:promote` | Moves an issue up the ladder as one atomic edit, so a promotion can't half-apply. |
+| `/pm-playbook:rfc` | Files a Gate 1 design-doc, grounded in the code, after a dedup check. |
+| `/pm-playbook:release` | "Can we tag?", separating *gated* from *incomplete*. |
+| **Hook** (`PreToolUse`) | Blocks `gh issue create/edit` that would violate `PM001`–`PM005` — before the issue exists. |
+
+The hook sees only the command text, never the repo. That is deliberate: it catches what is
+self-evident in the command (`--label plan-next --milestone v0.4.0`) instantly and offline, and
+leaves state-dependent violations to `check`. A fast partial gate beats a complete one that makes
+every Bash call wait on the network. It fails open on anything it cannot parse — a hook that breaks
+your session is worse than no hook.
+
+It also never blocks the *fix*: `--remove-label plan-next --milestone v0.4.0` passes, because the
+guard reads only additive flags. There's a regression test pinning exactly that.
 
 ## The model, in one paragraph
 
@@ -151,9 +189,27 @@ The doctrine is versioned like code, because consumers' existing issues can beco
 | **MINOR** | A new label, rule, or section. |
 | **PATCH** | Wording. |
 
-> **Known gap:** `bootstrap` writes labels *by name*, so it cannot rename one. A MAJOR release that
-> renames a label needs an explicit migration step — until that ships, renames must be applied by
-> hand with `gh label edit`.
+Because labels live in **your** GitHub rather than in this package, a MAJOR release that renames or
+retires one cannot fix itself — `bootstrap` writes labels by name and would just add the new one
+alongside the old, leaving every existing issue on the stale taxonomy. `migrate` closes that:
+
+```bash
+npx ai-pm-playbook migrate          # preview: shows every action and its blast radius
+npx ai-pm-playbook migrate --yes    # apply
+```
+
+It is preview-first because the three rename cases are not equally reversible:
+
+| Repo state | Action |
+|---|---|
+| only the old label exists | **rename** in place — GitHub preserves every assignment |
+| **both** labels exist | **merge** — relabel each carrier, then delete the old label |
+| only the new label exists | **skip** — already migrated, so re-running is safe |
+
+Progress is recorded as `migratedThrough` in `.pm-playbook/manifest.json`, tracked separately from
+`version` so that `init` (which rewrites the doctrine) and `migrate` (which rewrites GitHub) can
+run in either order without one erasing the other's evidence of pending work. `check` reports
+anything outstanding as `PM103`.
 
 ## Programmatic use
 
