@@ -42,6 +42,25 @@ jobs:
           # A clean adoption must be violation-free, and re-running must change nothing.
           npx ai-pm-playbook check --no-remote --strict
           npx ai-pm-playbook init | grep -q 'already current'
+          # A fresh adoption is born current: bootstrap creates today's taxonomy directly, so
+          # there is never migration history to replay into it.
+          grep -q '"migratedThrough": "1' .pm-playbook/manifest.json
+          npx ai-pm-playbook migrate | grep -q 'No pending label migrations'
+
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Claude Code
+        run: npm i -g @anthropic-ai/claude-code
+      # --strict so a misspelled manifest field fails here rather than at a user's install.
+      # This catches unparseable skill/command frontmatter, which otherwise loads with all
+      # metadata silently dropped — a skill that never triggers and reports no error.
+      - run: claude plugin validate . --strict
+      - run: claude plugin validate ./plugins/pm-playbook --strict
 
   lint-backlog:
     runs-on: ubuntu-latest
