@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "pm-playbook",
+  "displayName": "PM Playbook",
+  "version": "1.0.0",
+  "description": "Two-axis issue tracking with enforced invariants: a doctrine skill, ladder-aware commands, and a PreToolUse hook that blocks invariant-violating `gh issue` calls before they run.",
+  "author": {
+    "name": "Collin Kokotas",
+    "url": "https://github.com/hoodiecollin"
+  },
+  "homepage": "https://github.com/hoodiecollin/ai-pm-playbook",
+  "repository": "https://github.com/hoodiecollin/ai-pm-playbook",
+  "license": "MIT",
+  "keywords": ["github", "issues", "project-management", "roadmap", "release", "linter"]
+}
