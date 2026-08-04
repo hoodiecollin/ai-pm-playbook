@@ -255,6 +255,70 @@ something mechanical to check.
 File one the moment you *knowingly* defer a release obligation — the deferral is precisely when
 it is most likely to be forgotten, because everything still works locally.
 
+### 5.3 One integration branch, not one per version
+
+Once `develop` exists, the natural next thought is a second one: `v0.5-develop` alongside
+`v0.4-develop`, so next-cycle work has somewhere to go. **Don't.** There is exactly one
+integration branch, and its name never contains a version.
+
+**Two reasons, and the first is decisive for anyone who publishes anything.** The artifact
+registry — npm, crates.io, PyPI, a container tag — is a single global namespace with one version
+line per package. The publish gap is defined *relative to what is currently published*, so two
+cycle branches carrying unpublished changes cannot both be measured: whichever publishes first
+silently redefines the other's gap. The property §5.2 protects is inherently singular, because
+the registry is.
+
+**The second reason applies even to products that publish nothing.** §1 says there are exactly
+two axes and nothing else decomposes work — the milestone is *when*. A version-named branch
+encodes the schedule a second time, in a place that is harder to query and harder to correct, and
+the two copies will disagree. That is the parallel-decomposition anti-pattern with merge conflicts
+attached.
+
+**Keep the branch version-agnostic** and it becomes self-advancing: `develop` means "the cycle in
+flight," so the moment a release is tagged it *becomes* the next cycle with no rename, no new
+branch, and no workflow edit.
+
+#### Keeping next-cycle work off the integration branch
+
+The gate reads the milestone, not the branch name — the schedule already lives on the issue, so
+the check consults it rather than duplicating it:
+
+> **A pull request targeting the integration branch may not close an issue milestoned later than
+> the cycle in flight.**
+
+Note the shape: a **deny-list on future milestones**, not an allow-list on the current one. That
+distinction is what makes it usable without escape hatches. Untracked chores, CI fixes, and typo
+PRs pass, and correctly so — work with no issue cannot be next-cycle work, because next-cycle work
+is *defined* by carrying that milestone. The only thing the rule can fire on is the thing it exists
+to catch.
+
+**Derive the cycle in flight; never configure it.** It is the lowest open core milestone by
+version order. No constant to update, nothing that can drift from the actual spine, and it
+advances on its own when a milestone closes.
+
+That derivation has exactly one prerequisite, and it is worth stating because it is easy to skip:
+**closing the milestone must be part of the release ritual**, alongside publishing and tagging. A
+milestone left open after its tag freezes the gate and starts blocking legitimate next-cycle work
+— a loud, self-announcing failure rather than a silent one, which is the right direction to fail
+in. `release-check` returning clean and the milestone closing are the same moment.
+
+`pm-playbook scope-check` implements this as **PM008**. Wire it on pull requests targeting the
+integration branch.
+
+#### Where next-cycle work lives meanwhile
+
+On its own branch off the integration branch, unmerged, carrying its real milestone. Rebase it
+after the release merge and it lands normally. This is strictly cheaper than a second integration
+branch: you pay the merge cost once at the end instead of forward-porting every fix continuously.
+
+Two second long-lived branches *are* legitimate, and neither is a second cycle line:
+
+- **A maintenance line cut off a tag** (`release/v0.4.x`) when a patch is needed after the cycle
+  has moved on. It branches *backward* from released state, so it carries no publish gap at all.
+  Cut it when a patch actually materializes, not pre-emptively.
+- **A track that cannot merge into the current cycle** — a format break, a major rewrite. Name it
+  for the work (`format-v2`), never for a version, precisely so nobody reads it as a release line.
+
 ---
 
 ## 6. Surfaces — the delivery axis (`surface:*` labels)
@@ -478,4 +542,8 @@ Standing rules that keep Issues the single, always-current source of truth:
   docs" (§5.2).
 - **A release obligation filed as ordinary `tech-debt`** → it reads as deferrable when it is the
   opposite; label it `release-gate` so "can we tag?" is a query, not a memory (§5.2).
+- **A version-named integration branch, or one per upcoming version** → the publish gap is defined
+  against a single registry and only one cycle can be in flight; a version in the branch name also
+  encodes the schedule a second time, competing with the milestone (§5.3). One integration branch,
+  version-agnostic, gated by `scope-check`.
 - **Roadmap over-promising** → `WHAT_IT_IS.md` states limits and cedes authority to the code.
