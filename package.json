@@ -1,6 +1,6 @@
 {
   "name": "@hoodiecollin/pm-playbook",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A portable, agent-readable project-management model for GitHub Issues — vendored doctrine your agents read, plus a linter that enforces its invariants.",
   "type": "module",
   "license": "MIT",

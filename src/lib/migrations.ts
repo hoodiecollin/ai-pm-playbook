@@ -35,8 +35,8 @@ export interface Migration {
  * The migration log. Append-only: once a release ships, its entry is history and must never be
  * edited, because consumers upgrading from an older version still have to replay it.
  *
- * Empty at 1.0.0 — the taxonomy has not changed yet. The machinery ships now so that the first
- * rename is a data change rather than an emergency.
+ * Empty at the initial release — the taxonomy has not changed yet. The machinery ships now so
+ * that the first rename is a data change rather than an emergency.
  */
 export const MIGRATIONS: Migration[] = [];
 
