@@ -89,6 +89,7 @@ writes these descriptions for you.
 | `perf` | `#d93f0b` | Performance cost / triage item. |
 | `config` | `#1d76db` | Configurable-runtime-behavior work. |
 | `legacy-audit` | `#5319e7` | Legacy audit: prune dead / product-misaligned code. |
+| `release-gate` | `#b60205` | Blocks the tag: this milestone cannot be released until it is closed (§5.2). |
 
 Plus GitHub's stock labels (`bug`, `documentation`, `enhancement`, `good first issue`, `help
 wanted`, `question`, `duplicate`, `invalid`, `wontfix`) and the **`surface:*`** delivery labels
@@ -104,9 +105,15 @@ These mutual-exclusions keep the two axes clean and make every derived view triv
 - **`idea` ⊕ `plan-next`.** Speculative and committed are opposites. Pick one.
 - **`experiment` ⊕ {`idea`, `plan-next`, milestone}.** A spike you've committed to running is no
   longer merely speculative, isn't feature work in a queue, and never rides the spine (§4).
+- **`release-gate` ⇒ milestone, and `release-gate` ⊕ `idea`/`plan-next`/`experiment`.** A gate
+  blocks a *specific* tag, so it is meaningless without the milestone it blocks — and it is by
+  definition committed, so it can never be speculative or unscheduled. **An open `release-gate`
+  on a milestone means that milestone cannot be tagged**, regardless of whether every feature on
+  it is closed (§5.2).
 
 A consequence worth naming: because `plan-next` never has a milestone, "everything committed but
-unscheduled" is *exactly* the `plan-next` filter — no compound query needed.
+unscheduled" is *exactly* the `plan-next` filter — no compound query needed. Likewise
+`--label release-gate --state open` is the complete "can we tag?" query.
 
 ---
 
@@ -159,6 +166,94 @@ verdict from an unfair comparison is worse than none.
   show a just-tagged version as *Next* until the Release actually publishes (build lag) — another
   reason "closed" and "released" are distinct rungs. Trigger roadmap refreshes on **Release
   completion**, not tag push.
+
+### 5.2 Release readiness — the publish gap and the releasable-trunk property
+
+**The property: the default branch must stay releasable.** Not "green" — *releasable*. Every test
+can pass in-tree while the branch is still something you could not actually ship.
+
+This matters for a specific class of product: one whose **built or generated output depends on
+artifacts the project itself publishes** (a code generator whose emitted code links published
+runtime crates; a library whose examples pin its own package; a plugin host and its SDK). For
+those, there is a failure mode with no in-repo symptom:
+
+> **The publish gap.** Work lands that makes the built output require a *newly published* API.
+> In-tree everything resolves by path and passes. An installed user, resolving from the registry,
+> cannot build at all. **CI is green and the branch is unshippable.**
+
+Nothing in an ordinary test suite catches this, because the thing that is broken is *the
+relationship between the repo and the registry*, and the repo can't see it. The only proof is an
+**outside-repo reclose**: from a clean directory, with the *published* tool, run the real user
+path — install → scaffold → generate → build — and confirm every dependency resolves from the
+registry. Green in-tree has never proven this and never will.
+
+#### Two ways to hold the property — pick one and write it down
+
+The gap opens when publishing lags the work. There are exactly two honest ways to prevent trunk
+from carrying it:
+
+1. **Publish eagerly.** The moment work requires a new published API, publish it *before* the
+   dependent pin lands. No gap ever exists on any branch. Cost: many intermediate versions, all
+   permanent, most of which nobody ever resolves.
+2. **Hold the gap off trunk.** Batch the publish at the release, and keep the gap on an
+   integration branch so the default branch only ever holds released-and-resolvable state. Cost:
+   a second long-lived branch and a real merge discipline (below).
+
+Either is defensible; **choosing neither is not**. "We'll remember to publish before tagging" is
+not a mechanism — it is the thing that fails. Whichever you pick, state it in `CONTRIBUTING.md`
+so it survives the person who chose it.
+
+#### If you hold the gap off trunk
+
+- **`main` holds released state.** After a release it equals the tag. It is always installable
+  from source.
+- **`develop` (or equivalent) is where core work integrates.** It may knowingly carry a publish
+  gap; that is its job.
+- **The release sequence is ordered and the order is the whole point:** publish the artifacts →
+  *then* merge `develop` → `main` → *then* tag. Publishing after the merge reintroduces the
+  window you built the branch to eliminate.
+- **The outside-repo reclose is a required check on `main`**, not on `develop`. Requiring it on
+  the integration branch would make it permanently red for a whole cycle, and a check that is
+  always red is a check nobody reads.
+
+#### Which branch does non-core surface work target?
+
+Not a surface question — a **coupling** question. §6.1 governs *milestones and changelogs* by
+surface; branch targeting is governed by something different:
+
+> **Does this change depend on, describe, or demonstrate behavior that is not released yet?**
+>
+> - **No** → straight to `main`. Typo fixes, styling, SEO, analytics, dependency bumps, broken
+>   links, corrections to already-shipped documentation. These deploy continuously and should not
+>   wait on a release they have nothing to do with.
+> - **Yes** → `develop`, **in the same change as the feature**. Documentation for an unreleased
+>   feature, examples using an unreleased API, screenshots of unshipped UI, a changelog entry
+>   describing behavior nobody can run.
+
+Getting this backwards produces **documentation that ships ahead of the feature it documents** —
+a public page describing an API that does not exist yet, which is worse than no page at all: it
+generates support load, and it makes the docs a liar in exactly the moment someone is trusting
+them. Pair feature docs with the feature, always.
+
+Note this is a *finer* rule than §6.1, not a contradiction. A `surface:website` issue still never
+rides a core `v*` milestone; but a website change that documents unreleased core still waits for
+that core to ship. One rule is about *where the work is tracked*, the other about *when it
+becomes visible*.
+
+#### `release-gate` — the rung between "closed" and "released"
+
+§2's ladder ends `… → closed-into-milestone → released`. That gap is where release obligations
+live, and they are not features: publishing artifacts, reconciling a version line, proving a
+reclose, rotating a credential before it expires. Left as ordinary `tech-debt`, they are
+indistinguishable from work you could defer — and they are the exact opposite.
+
+**`release-gate` names them.** An open `release-gate` issue on a milestone means that milestone
+**cannot be tagged**, even if every feature on it is closed. It makes "are we releasable?" a
+query (`--label release-gate --state open`) instead of a memory, and it gives the tag workflow
+something mechanical to check.
+
+File one the moment you *knowingly* defer a release obligation — the deferral is precisely when
+it is most likely to be forgotten, because everything still works locally.
 
 ---
 
@@ -347,6 +442,10 @@ Standing rules that keep Issues the single, always-current source of truth:
 5. Define this product's **`surface:*`** labels — only if it ships more than one artifact.
 6. Seed `VERSION_ROADMAP.md` + `WHAT_IT_IS.md` (§10) and put the two-axis model + doctrine into
    `CONTRIBUTING.md`.
+6b. **If the product publishes artifacts its own built output depends on** (§5.2): decide *now*
+   whether you publish eagerly or hold the gap off trunk, write the answer and the branch a PR
+   targets into `CONTRIBUTING.md`, and wire the outside-repo reclose as a required check on the
+   default branch. A repo that publishes nothing can skip this entirely.
 7. Backfill: label the existing backlog along the ladder, assign milestones, and **enforce the
    invariants** (§3.2) — a `plan-next`+milestone collision is the #1 drift smell.
 8. Convert epic checklists to **native sub-issues** (§7.1).
@@ -371,4 +470,12 @@ Standing rules that keep Issues the single, always-current source of truth:
 - **Board as shadow backlog** → Issues are the backlog; the board is only a view.
 - **Non-core surface work on a core milestone** → it reads "done, awaiting vX" but ships on its
   own line and never hits the core changelog (§6.1).
+- **A green default branch that cannot actually be released** → the publish gap (§5.2). In-tree
+  tests cannot see it; only an outside-repo reclose can. Publish eagerly or hold the gap off
+  trunk — "we'll remember before tagging" is not a mechanism.
+- **Documentation that ships ahead of the feature it documents** → docs for unreleased behavior
+  belong on the integration branch *with the feature*, not merged to trunk because "it's only
+  docs" (§5.2).
+- **A release obligation filed as ordinary `tech-debt`** → it reads as deferrable when it is the
+  opposite; label it `release-gate` so "can we tag?" is a query, not a memory (§5.2).
 - **Roadmap over-promising** → `WHAT_IT_IS.md` states limits and cedes authority to the code.

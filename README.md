@@ -5,7 +5,7 @@ any of your repos can adopt.
 
 | File | What it is |
 |---|---|
-| **[PLAYBOOK.md](./PLAYBOOK.md)** | The canonical methodology — the two-axis core, labels + invariants, experiments-off-spine, the release spine, surfaces, epics via native sub-issues, the design→plan→spec doctrine, operating disciplines. The reference every project points to. |
+| **[PLAYBOOK.md](./PLAYBOOK.md)** | The canonical methodology — the two-axis core, labels + invariants, experiments-off-spine, the release spine, release readiness + the publish gap, surfaces, epics via native sub-issues, the design→plan→spec doctrine, operating disciplines. The reference every project points to. |
 | **[scripts/bootstrap-pm.ts](./scripts/bootstrap-pm.ts)** | Idempotent Bun script that provisions labels, milestones, and the scriptable filtered views for a repo+project. |
 | **[.github/ISSUE_TEMPLATE/](./.github/ISSUE_TEMPLATE/)** | Reusable issue templates: `idea`, `rfc` (design-doc / Gate 1), `implementation-plan` (Gate 2), `epic` (native sub-issues + "Decisions locked / ground truth" skeleton). |
 
@@ -22,7 +22,10 @@ spine** — a spike's deliverable is a decision, not an artifact; its conclusion
 shippable faces are **`surface:*`** labels (core / ide-extension / website), each on its own
 release line and **excluded from the core milestone + changelog**. Nothing gets coded until a
 **design-doc** (what/why) then an **implementation-plan** (how) exist as issues, then **BDD
-spec-first RED→GREEN**. Prioritize on **engineering merit, never demand**.
+spec-first RED→GREEN**. Prioritize on **engineering merit, never demand**. If the product
+**publishes artifacts its own built output depends on**, the default branch must stay *releasable*
+— publish eagerly or hold the **publish gap** off trunk, prove it with an **outside-repo reclose**,
+and label anything that blocks a tag **`release-gate`**.
 
 ## Quick start on a repo
 

@@ -54,6 +54,7 @@ const MATURITY_LABELS: { name: string; color: string; description: string }[] = 
   { name: "perf", color: "d93f0b", description: "Performance cost / triage item." },
   { name: "config", color: "1d76db", description: "Configurable-runtime-behavior work." },
   { name: "legacy-audit", color: "5319e7", description: "Legacy audit: prune dead / product-misaligned code." },
+  { name: "release-gate", color: "b60205", description: "Blocks the tag: this milestone cannot be released until it is closed." },
 ];
 
 /**
@@ -66,6 +67,8 @@ const VIEWS: { name: string; layout: "table" | "board"; filter?: string; group?:
   { name: "Planned", layout: "table", filter: "label:plan-next" },
   { name: "Labs", layout: "table", filter: "label:experiment,rfc" },
   { name: "Ideas", layout: "table", filter: "label:idea" },
+  // "Can we tag?" — an open row here means the milestone it names is blocked (PLAYBOOK §5.2).
+  { name: "Release gates", layout: "table", filter: "label:release-gate is:open" },
   { name: "Release spine", layout: "board", group: "Milestone" },
   { name: "Execution", layout: "board", group: "Status" },
   { name: "Surface Board", layout: "board", group: "surface:* label (multi-artifact repos only)" },
