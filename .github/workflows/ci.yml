@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun run build
+
+      # The CLI must run on stock Node, not just Bun — most consumers reach it via `npx`.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Smoke-test the bundle on Node
+        run: |
+          node dist/cli.js version
+          node dist/cli.js rules
+          node dist/cli.js check --no-remote
+
+      # Prove that what a consumer installs actually works, rather than trusting the source tree.
+      - name: End-to-end install into a fresh repo
+        run: |
+          set -euo pipefail
+          npm pack --pack-destination /tmp
+          mkdir -p /tmp/consumer && cd /tmp/consumer
+          git init -q . && npm init -y >/dev/null
+          npm i -D /tmp/ai-pm-playbook-*.tgz >/dev/null
+          npx ai-pm-playbook init
+          test -f .pm-playbook/AGENT.md
+          test -f .pm-playbook/manifest.json
+          test -f .github/ISSUE_TEMPLATE/rfc.md
+          grep -q 'pm-playbook:begin' AGENTS.md
+          # A clean adoption must be violation-free, and re-running must change nothing.
+          npx ai-pm-playbook check --no-remote --strict
+          npx ai-pm-playbook init | grep -q 'already current'
+
+  lint-backlog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      # Dogfood: this repo's own backlog must satisfy the invariants it ships.
+      - run: node dist/cli.js check --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}

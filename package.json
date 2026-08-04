@@ -1,11 +1,65 @@
 {
   "name": "ai-pm-playbook",
-  "private": true,
+  "version": "1.0.0",
+  "description": "A portable, agent-readable project-management model for GitHub Issues — vendored doctrine your agents read, plus a linter that enforces its invariants.",
   "type": "module",
+  "license": "MIT",
+  "author": "Collin Kokotas",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hoodiecollin/ai-pm-playbook.git"
+  },
+  "homepage": "https://github.com/hoodiecollin/ai-pm-playbook#readme",
+  "bugs": {
+    "url": "https://github.com/hoodiecollin/ai-pm-playbook/issues"
+  },
+  "keywords": [
+    "agents",
+    "agentic",
+    "agents-md",
+    "ai",
+    "claude",
+    "cursor",
+    "copilot",
+    "codex",
+    "github",
+    "issues",
+    "project-management",
+    "roadmap",
+    "playbook",
+    "linter"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "pm-playbook": "./dist/cli.js",
+    "ai-pm-playbook": "./dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./playbook": "./assets/playbook/PLAYBOOK.md",
+    "./assets/*": "./assets/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "assets",
+    "PLAYBOOK.md",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "bootstrap": "bun scripts/bootstrap-pm.ts"
+    "assets": "bun scripts/split-assets.ts",
+    "build": "bun run assets && bun scripts/build.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run build && node dist/cli.js check --no-remote",
+    "prepublishOnly": "bun run typecheck && bun test && bun run build"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/node": "^26.1.2",
+    "typescript": "^7.0.2"
   }
 }

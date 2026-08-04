@@ -1,4 +1,12 @@
 node_modules/
+dist/
+assets/
+
+# This repo PUBLISHES the doctrine; it does not vendor a second copy of it.
+# PLAYBOOK.md + agent/AGENT.template.md are canonical here. Run `bun run build && node dist/cli.js init`
+# to materialize .pm-playbook/ locally if you want to see what consumers get.
+.pm-playbook/
+
 *.log
 .DS_Store
 GAP-AUDIT.md

@@ -1,38 +1,183 @@
-# pm-playbook
+# ai-pm-playbook
 
-The ForgeDB project-management model, reverse-engineered and generalized into a portable system
-any of your repos can adopt.
+A portable project-management model for GitHub Issues — packaged so **your agents read it and a
+linter enforces it**.
 
-| File | What it is |
+```bash
+npx ai-pm-playbook init          # vendor the doctrine + wire your agent instruction files
+npx ai-pm-playbook check         # exit 1 if the backlog violates an invariant
+```
+
+Works with any agent harness that reads repo files — Claude Code, Cursor, Codex, Copilot, Gemini,
+Windsurf, or your own. There is no plugin to install and no MCP server to run.
+
+---
+
+## Why this isn't a normal dependency
+
+Two payloads, two delivery mechanics:
+
+| Payload | Consumer | How it ships |
+|---|---|---|
+| The doctrine (`PLAYBOOK.md`) | your **agent's context window** | vendored into `.pm-playbook/`, committed, version-stamped |
+| The provisioner + linter | your **GitHub and your CI** | ordinary `npx` bin |
+
+The doctrine is **copied into your repo rather than referenced from `node_modules/`**, on purpose:
+cloud agents, CI containers and review sandboxes routinely have no `node_modules`; a committed file
+is diffable, so a doctrine change shows up in PR review; and every harness can read repo files while
+none reliably resolve a package path out of prose.
+
+The cost of copying is drift, so it's paid for with a manifest — package version plus a SHA-256 per
+file. `check` compares them and tells you to re-run `init`. That's the lockfile pattern applied to
+prose.
+
+## What `init` does
+
+```
+.pm-playbook/
+  AGENT.md              ← the router your agents read first (short, always loadable)
+  PLAYBOOK.md           ← the full doctrine
+  reference/            ← 13 sections, loaded on demand
+  manifest.json         ← version + per-file hashes (drift detection)
+.github/ISSUE_TEMPLATE/ ← idea · rfc · implementation-plan · epic
+AGENTS.md               ← a ~20-line pointer stanza between markers
+```
+
+The stanza is a **pointer plus the invariants**, never the doctrine itself. Always-loaded context is
+the scarcest resource in a repo — spending 500 lines of it on project management would degrade every
+unrelated task. The pointer costs ~20 lines and buys progressive disclosure.
+
+`--detect` also writes any agent file your team already keeps (`CLAUDE.md`,
+`.github/copilot-instructions.md`, `.cursorrules`, `GEMINI.md`, …). Re-running is idempotent:
+the stanza sits between `<!-- pm-playbook:begin -->` markers, so your own content is never touched.
+
+## Why the linter is the load-bearing piece
+
+Prose in a context window is a suggestion. A command that exits non-zero is a constraint.
+
+The playbook's invariants are already boolean expressions over labels and milestones, so they're
+executable — and agents self-correct against a failing check far more reliably than against a
+paragraph they half-loaded.
+
+| Rule | Invariant | §
+|---|---|---|
+| `PM001` | `plan-next` ⊕ milestone | 3.2 |
+| `PM002` | `idea` ⊕ `plan-next` | 3.2 |
+| `PM003` | `experiment` ⊕ {`idea`, `plan-next`, milestone} | 3.2 / 4 |
+| `PM004` | `release-gate` ⇒ milestone | 3.2 |
+| `PM005` | `release-gate` ⊕ {`idea`, `plan-next`, `experiment`} | 3.2 |
+| `PM006` | non-core `surface:*` ⊕ core `v*` milestone | 6.1 |
+| `PM007` | an `epic` decomposes via native sub-issues *(warn)* | 7.1 |
+| `PM008` | a PR to the integration branch never closes work milestoned past the cycle in flight | 5.3 |
+| `PM009` | a PR references next-cycle work it doesn't close *(warn)* | 5.3 |
+| `PM100` | vendored doctrine matches the installed package *(warn)* | — |
+| `PM101` | agent instruction files carry the stanza *(warn)* | — |
+| `PM102` | no markdown shadow backlog *(warn)* | 11 |
+
+Every violation carries an **executable fix**, and `--json` emits the whole report — that's the
+agent-facing interface. A harness can feed violations straight back to a model:
+
+```jsonc
+{
+  "rule": "PM001",
+  "severity": "error",
+  "message": "`plan-next` coexists with milestone `v0.4.0`. …",
+  "fix": "Assigning a milestone IS scheduling. Drop the label: gh issue edit 42 --remove-label plan-next"
+}
+```
+
+## Commands
+
+| Command | Does |
 |---|---|
-| **[PLAYBOOK.md](./PLAYBOOK.md)** | The canonical methodology — the two-axis core, labels + invariants, experiments-off-spine, the release spine, release readiness + the publish gap, surfaces, epics via native sub-issues, the design→plan→spec doctrine, operating disciplines. The reference every project points to. |
-| **[scripts/bootstrap-pm.ts](./scripts/bootstrap-pm.ts)** | Idempotent Bun script that provisions labels, milestones, and the scriptable filtered views for a repo+project. |
-| **[.github/ISSUE_TEMPLATE/](./.github/ISSUE_TEMPLATE/)** | Reusable issue templates: `idea`, `rfc` (design-doc / Gate 1), `implementation-plan` (Gate 2), `epic` (native sub-issues + "Decisions locked / ground truth" skeleton). |
+| `init` | Vendor the doctrine, copy issue templates, wire agent files. **Local and offline** unless `--repo` is passed. |
+| `bootstrap --repo o/n --project N` | Provision labels, a starter milestone, and the filtered Project views. Idempotent. |
+| `check` | Lint the backlog. `--no-remote` for local-only, `--json` for agents, `--strict` to fail on warnings. |
+| `release-check vX.Y.Z` | "Can we tag?" Exit 1 if the milestone is gated or incomplete. |
+| `scope-check <pr>` | Cycle-scope gate: refuse a PR that lands next-cycle work on the integration branch. |
+| `rules` | Print the rule index. |
 
-## The one-paragraph version
+`init` deliberately does **not** touch GitHub unless you pass `--repo`: provisioning labels mutates
+shared team state and should be a decision, not a side effect of installing a dependency.
+
+## CI
+
+```yaml
+- run: npx ai-pm-playbook check --repo ${{ github.repository }}
+  env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+```
+
+And as a tag gate (§5.2):
+
+```yaml
+- run: npx ai-pm-playbook release-check ${{ github.ref_name }}
+```
+
+And on pull requests targeting the integration branch (§5.3) — this refuses to land next-cycle work
+on `develop`. The cycle in flight is derived from the lowest open core milestone, so there is no
+constant to keep updated:
+
+```yaml
+- run: npx ai-pm-playbook scope-check ${{ github.event.pull_request.number }}
+  env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+```
+
+## The model, in one paragraph
 
 All work is **GitHub Issues**, organized by **exactly two orthogonal axes — Milestone (*when*, the
 release spine) and Labels (*what kind / maturity*) — and nothing else decomposes work.** Epics
 decompose via GitHub **native sub-issues** (not checkboxes, not a field); the **Project board is a
 view**, never a second source of truth. There are **no Priority/Size/Workstream fields** — they're
-a parallel source of truth that drifts. Labels carry hard **invariants** (`plan-next` ⊕ milestone;
-`idea` ⊕ `plan-next`; `experiment` ⊕ everything committed) and **`experiment` never rides the
-spine** — a spike's deliverable is a decision, not an artifact; its conclusion feeds the spine.
-**Milestones = versions** ("scheduled"; closed ≠ shipped until the Release is tagged). Distinct
-shippable faces are **`surface:*`** labels (core / ide-extension / website), each on its own
-release line and **excluded from the core milestone + changelog**. Nothing gets coded until a
-**design-doc** (what/why) then an **implementation-plan** (how) exist as issues, then **BDD
-spec-first RED→GREEN**. Prioritize on **engineering merit, never demand**. If the product
-**publishes artifacts its own built output depends on**, the default branch must stay *releasable*
-— publish eagerly or hold the **publish gap** off trunk, prove it with an **outside-repo reclose**,
-and label anything that blocks a tag **`release-gate`**.
+a parallel source of truth that drifts. Labels carry hard **invariants** and **`experiment` never
+rides the spine** — a spike's deliverable is a decision, not an artifact; its conclusion feeds the
+spine. **Milestones = versions** ("scheduled"; closed ≠ shipped until the Release is tagged).
+Distinct shippable faces are **`surface:*`** labels, each on its own release line and **excluded
+from the core milestone + changelog**. Nothing gets coded until a **design-doc** (what/why) then an
+**implementation-plan** (how) exist as issues, then **BDD spec-first RED→GREEN**. Prioritize on
+**engineering merit, never demand**. If the product **publishes artifacts its own built output
+depends on**, the default branch must stay *releasable* — publish eagerly or hold the **publish
+gap** off trunk, prove it with an **outside-repo reclose**, and label anything that blocks a tag
+**`release-gate`**.
 
-## Quick start on a repo
+Full text: **[PLAYBOOK.md](./PLAYBOOK.md)**.
+
+## Versioning
+
+The doctrine is versioned like code, because consumers' existing issues can become violations:
+
+| Bump | Means |
+|---|---|
+| **MAJOR** | An invariant changed, or a label was renamed/removed. Your backlog may now fail `check`; a migration note ships with the release. |
+| **MINOR** | A new label, rule, or section. |
+| **PATCH** | Wording. |
+
+> **Known gap:** `bootstrap` writes labels *by name*, so it cannot rename one. A MAJOR release that
+> renames a label needs an explicit migration step — until that ships, renames must be applied by
+> hand with `gh label edit`.
+
+## Programmatic use
+
+```ts
+import { checkIssues, listIssues, RULES } from "ai-pm-playbook";
+
+const violations = checkIssues(await listIssues("owner/name"));
+```
+
+## Developing
+
+`PLAYBOOK.md` is the **one** hand-edited copy of the doctrine. `assets/` is generated from it —
+`bun run build` splits it into `reference/` and verifies that every section is routed from
+`agent/AGENT.template.md` and that every router pointer resolves. A mismatch fails the build.
 
 ```bash
 bun install
-bun run bootstrap --repo <owner>/<name> --project <N> \
-  --surfaces "core,ide-extension,website" --milestone v0.1.0
-# then set group-by on the Release-spine / Surface / Execution boards in the UI,
-# and (if migrating) delete any Priority/Size/Workstream fields + their views.
+bun test          # the invariant rules
+bun run build     # generate assets/ + bundle dist/ (Node-compatible ESM)
+bun run typecheck
 ```
+
+This repo publishes the doctrine, so it does not vendor a second copy of it — see `AGENTS.md`.
+
+## License
+
+MIT
