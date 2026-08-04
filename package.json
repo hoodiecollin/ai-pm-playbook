@@ -1,5 +1,5 @@
 {
-  "name": "ai-pm-playbook",
+  "name": "@hoodiecollin/pm-playbook",
   "version": "1.0.0",
   "description": "A portable, agent-readable project-management model for GitHub Issues — vendored doctrine your agents read, plus a linter that enforces its invariants.",
   "type": "module",
@@ -33,8 +33,10 @@
     "node": ">=18"
   },
   "bin": {
-    "pm-playbook": "./dist/cli.js",
-    "ai-pm-playbook": "./dist/cli.js"
+    "pm-playbook": "./dist/cli.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "exports": {
     ".": "./dist/index.js",

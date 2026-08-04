@@ -46,7 +46,7 @@ idea  →  plan-next  →  milestone assigned  →  merged/closed  →  GitHub R
 | `PM006` | non-core `surface:*` ⊕ core `v*` milestone |
 | `PM008` | a PR to the integration branch never closes work milestoned past the cycle in flight |
 
-Verify your work with `npx ai-pm-playbook check` before you finish. `--json` gives you the
+Verify your work with `npx @hoodiecollin/pm-playbook check` before you finish. `--json` gives you the
 violations with an executable fix on each.
 
 ## Read this when you are about to…
@@ -90,9 +90,9 @@ gh issue list --label plan-next                   # committed but unscheduled (m
 gh issue list --label release-gate --state open   # "can we tag?" — any row blocks its milestone
 gh issue list --milestone vX.Y.Z --state open     # what is left in this release
 
-npx ai-pm-playbook check --json                   # every violation, each with a fix
-npx ai-pm-playbook release-check vX.Y.Z           # exit 1 if the milestone is gated or incomplete
-npx ai-pm-playbook scope-check <pr>               # exit 1 if a PR lands next-cycle work on develop
+npx @hoodiecollin/pm-playbook check --json                   # every violation, each with a fix
+npx @hoodiecollin/pm-playbook release-check vX.Y.Z           # exit 1 if the milestone is gated or incomplete
+npx @hoodiecollin/pm-playbook scope-check <pr>               # exit 1 if a PR lands next-cycle work on develop
 ```
 
 ## If this repo has an integration branch

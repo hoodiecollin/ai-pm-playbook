@@ -1,11 +1,11 @@
-# ai-pm-playbook
+# @hoodiecollin/pm-playbook
 
 A portable project-management model for GitHub Issues — packaged so **your agents read it and a
 linter enforces it**.
 
 ```bash
-npx ai-pm-playbook init          # vendor the doctrine + wire your agent instruction files
-npx ai-pm-playbook check         # exit 1 if the backlog violates an invariant
+npx @hoodiecollin/pm-playbook init          # vendor the doctrine + wire your agent instruction files
+npx @hoodiecollin/pm-playbook check         # exit 1 if the backlog violates an invariant
 ```
 
 Works with any agent harness that reads repo files — Claude Code, Cursor, Codex, Copilot, Gemini,
@@ -113,14 +113,14 @@ shared team state and should be a decision, not a side effect of installing a de
 ## CI
 
 ```yaml
-- run: npx ai-pm-playbook check --repo ${{ github.repository }}
+- run: npx @hoodiecollin/pm-playbook check --repo ${{ github.repository }}
   env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
 ```
 
 And as a tag gate (§5.2):
 
 ```yaml
-- run: npx ai-pm-playbook release-check ${{ github.ref_name }}
+- run: npx @hoodiecollin/pm-playbook release-check ${{ github.ref_name }}
 ```
 
 And on pull requests targeting the integration branch (§5.3) — this refuses to land next-cycle work
@@ -128,7 +128,7 @@ on `develop`. The cycle in flight is derived from the lowest open core milestone
 constant to keep updated:
 
 ```yaml
-- run: npx ai-pm-playbook scope-check ${{ github.event.pull_request.number }}
+- run: npx @hoodiecollin/pm-playbook scope-check ${{ github.event.pull_request.number }}
   env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
 ```
 
@@ -194,8 +194,8 @@ retires one cannot fix itself — `bootstrap` writes labels by name and would ju
 alongside the old, leaving every existing issue on the stale taxonomy. `migrate` closes that:
 
 ```bash
-npx ai-pm-playbook migrate          # preview: shows every action and its blast radius
-npx ai-pm-playbook migrate --yes    # apply
+npx @hoodiecollin/pm-playbook migrate          # preview: shows every action and its blast radius
+npx @hoodiecollin/pm-playbook migrate --yes    # apply
 ```
 
 It is preview-first because the three rename cases are not equally reversible:
@@ -214,7 +214,7 @@ anything outstanding as `PM103`.
 ## Programmatic use
 
 ```ts
-import { checkIssues, listIssues, RULES } from "ai-pm-playbook";
+import { checkIssues, listIssues, RULES } from "@hoodiecollin/pm-playbook";
 
 const violations = checkIssues(await listIssues("owner/name"));
 ```

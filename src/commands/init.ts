@@ -109,11 +109,11 @@ export async function init(args: Args, repoRoot: string): Promise<number> {
   console.log("     which is why they must not be gitignored.");
   if (!repo) {
     console.log("  2. Provision labels/milestones/views on GitHub:");
-    console.log("       npx ai-pm-playbook bootstrap --repo <owner>/<name> --project <N>");
+    console.log("       npx @hoodiecollin/pm-playbook bootstrap --repo <owner>/<name> --project <N>");
   } else {
     console.log("  2. Set group-by on the Release spine / Surface / Execution boards in the UI.");
   }
-  console.log("  3. Add the check to CI:  npx ai-pm-playbook check --repo <owner>/<name>");
+  console.log("  3. Add the check to CI:  npx @hoodiecollin/pm-playbook check --repo <owner>/<name>");
   console.log(`  4. Read ${VENDOR_DIR}/AGENT.md yourself — it is the map your agents will use.`);
   return 0;
 }

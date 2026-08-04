@@ -40,6 +40,6 @@ It is a short router: load only the reference section relevant to what you are d
 **Verify before opening a PR** — exit code 0 means compliant:
 
 ```bash
-npx ai-pm-playbook check
+npx @hoodiecollin/pm-playbook check
 ```
 <!-- pm-playbook:end -->

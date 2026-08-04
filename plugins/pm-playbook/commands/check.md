@@ -6,7 +6,7 @@ allowed-tools: Bash, Read, Edit
 
 Run the pm-playbook invariant linter and **fix** the violations — do not just report them.
 
-1. Run `npx ai-pm-playbook check --json $ARGUMENTS`. Use `--json`: every violation carries an
+1. Run `npx @hoodiecollin/pm-playbook check --json $ARGUMENTS`. Use `--json`: every violation carries an
    executable `fix` field.
 2. If it exits 0 with no violations, say so in one line and stop.
 3. Otherwise, work through them:
@@ -16,7 +16,7 @@ Run the pm-playbook invariant linter and **fix** the violations — do not just 
    - `PM102` (shadow backlog) means moving live entries into issues and deleting the file. Do not
      delete a file that is *generated* — check whether it is derived output first.
    - `PM103` (pending label migrations) mutates shared team state. Run
-     `npx ai-pm-playbook migrate` to preview it and **show the user the plan** rather than
+     `npx @hoodiecollin/pm-playbook migrate` to preview it and **show the user the plan** rather than
      applying it with `--yes` yourself.
 4. Re-run `check` to confirm you are green.
 

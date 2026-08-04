@@ -34,6 +34,6 @@ Steps:
 5. Never promote an `experiment`. Its deliverable is a decision, not a shippable artifact — it has
    no rung on this ladder. If its conclusion commits real work, file *that* as a new issue and
    promote the new one.
-6. Confirm with `npx ai-pm-playbook check --repo <owner>/<name>`.
+6. Confirm with `npx @hoodiecollin/pm-playbook check --repo <owner>/<name>`.
 
 Report what changed in one or two lines, including the milestone if you assigned one.

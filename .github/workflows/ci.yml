@@ -33,19 +33,19 @@ jobs:
           npm pack --pack-destination /tmp
           mkdir -p /tmp/consumer && cd /tmp/consumer
           git init -q . && npm init -y >/dev/null
-          npm i -D /tmp/ai-pm-playbook-*.tgz >/dev/null
-          npx ai-pm-playbook init
+          npm i -D /tmp/*.tgz >/dev/null
+          npx @hoodiecollin/pm-playbook init
           test -f .pm-playbook/AGENT.md
           test -f .pm-playbook/manifest.json
           test -f .github/ISSUE_TEMPLATE/rfc.md
           grep -q 'pm-playbook:begin' AGENTS.md
           # A clean adoption must be violation-free, and re-running must change nothing.
-          npx ai-pm-playbook check --no-remote --strict
-          npx ai-pm-playbook init | grep -q 'already current'
+          npx @hoodiecollin/pm-playbook check --no-remote --strict
+          npx @hoodiecollin/pm-playbook init | grep -q 'already current'
           # A fresh adoption is born current: bootstrap creates today's taxonomy directly, so
           # there is never migration history to replay into it.
           grep -q '"migratedThrough": "1' .pm-playbook/manifest.json
-          npx ai-pm-playbook migrate | grep -q 'No pending label migrations'
+          npx @hoodiecollin/pm-playbook migrate | grep -q 'No pending label migrations'
 
   plugin:
     runs-on: ubuntu-latest

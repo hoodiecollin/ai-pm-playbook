@@ -6,7 +6,7 @@ allowed-tools: Bash, Read
 
 Determine whether milestone `$ARGUMENTS` can be released.
 
-1. Run `npx ai-pm-playbook release-check $ARGUMENTS`. It separates two different failures, and the
+1. Run `npx @hoodiecollin/pm-playbook release-check $ARGUMENTS`. It separates two different failures, and the
    distinction matters:
    - **Open `release-gate` issues** — release *obligations* (publishing artifacts, reconciling a
      version line, proving a reclose, rotating a credential). An open one means the milestone

@@ -3,7 +3,7 @@
  *
  * Wire it on pull requests targeting the integration branch:
  *
- *   - run: npx ai-pm-playbook scope-check ${{ github.event.pull_request.number }}
+ *   - run: npx @hoodiecollin/pm-playbook scope-check ${{ github.event.pull_request.number }}
  *
  * The gate reads the MILESTONE, not the branch name. The schedule already lives on the issue, so
  * consulting it beats duplicating it into a version-named branch — which is precisely the

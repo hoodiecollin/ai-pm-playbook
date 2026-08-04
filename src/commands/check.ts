@@ -36,21 +36,21 @@ function localChecks(repoRoot: string, version: string): Violation[] {
       out.push({
         rule: "PM100", severity: "warn", section: "—", file: `${VENDOR_DIR}/manifest.json`,
         message: `Vendored doctrine is v${drift.vendoredVersion} but the installed package is v${version}. Your agents are reading stale rules.`,
-        fix: "npx ai-pm-playbook init",
+        fix: "npx @hoodiecollin/pm-playbook init",
       });
     }
     for (const f of drift.missing) {
       out.push({
         rule: "PM100", severity: "warn", section: "—", file: `${VENDOR_DIR}/${f}`,
         message: "Vendored file is missing but recorded in the manifest.",
-        fix: "npx ai-pm-playbook init",
+        fix: "npx @hoodiecollin/pm-playbook init",
       });
     }
     for (const f of drift.modified) {
       out.push({
         rule: "PM100", severity: "warn", section: "—", file: `${VENDOR_DIR}/${f}`,
         message: "Vendored file was edited locally; it no longer matches the packaged doctrine.",
-        fix: "Revert it, or re-run `npx ai-pm-playbook init --force` to take the packaged version.",
+        fix: "Revert it, or re-run `npx @hoodiecollin/pm-playbook init --force` to take the packaged version.",
       });
     }
   }
@@ -67,7 +67,7 @@ function localChecks(repoRoot: string, version: string): Violation[] {
         status === "absent"
           ? `${file} has no pm-playbook stanza — agents reading it will not know the model exists.`
           : `${file} carries a stanza from a different version.`,
-      fix: `npx ai-pm-playbook init --agent-files ${file}`,
+      fix: `npx @hoodiecollin/pm-playbook init --agent-files ${file}`,
     });
   }
 
@@ -77,7 +77,7 @@ function localChecks(repoRoot: string, version: string): Violation[] {
     out.push({
       rule: "PM103", severity: "warn", section: "—", file: `${VENDOR_DIR}/manifest.json`,
       message: `Label migration for v${m.version} has not been applied: ${m.summary}`,
-      fix: "npx ai-pm-playbook migrate        # preview, then re-run with --yes",
+      fix: "npx @hoodiecollin/pm-playbook migrate        # preview, then re-run with --yes",
     });
   }
 

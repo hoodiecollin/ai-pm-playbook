@@ -25,7 +25,7 @@ export async function migrate(args: Args, repoRoot: string): Promise<number> {
 
   const manifest = readManifest(repoRoot);
   if (!manifest) {
-    console.error("ERROR: this repo has not adopted the playbook yet — run `npx ai-pm-playbook init` first.");
+    console.error("ERROR: this repo has not adopted the playbook yet — run `npx @hoodiecollin/pm-playbook init` first.");
     return 2;
   }
 

@@ -6,7 +6,7 @@ description: "The two-axis GitHub Issues model — milestones (when) + labels (w
 # pm-playbook
 
 Issue tracking follows a two-axis model with **hard invariants**. Violating one is a bug, not a
-style preference — `npx ai-pm-playbook check` exits non-zero on them.
+style preference — `npx @hoodiecollin/pm-playbook check` exits non-zero on them.
 
 ## Where the authoritative text lives
 
@@ -17,8 +17,8 @@ what this project actually adopted, and it may be a different version than this 
 If it does not exist, this repo has not adopted the playbook. Say so before proceeding, and offer:
 
 ```bash
-npx ai-pm-playbook init          # vendor the doctrine + wire agent instruction files
-npx ai-pm-playbook bootstrap --repo <owner>/<name>   # provision labels on GitHub
+npx @hoodiecollin/pm-playbook init          # vendor the doctrine + wire agent instruction files
+npx @hoodiecollin/pm-playbook bootstrap --repo <owner>/<name>   # provision labels on GitHub
 ```
 
 Everything below is the always-true core, and is safe to act on either way.
@@ -80,9 +80,9 @@ depends on the issue's *existing* labels — run `check` for that.
 ## Verifying
 
 ```bash
-npx ai-pm-playbook check --json          # every violation, each with an executable fix
-npx ai-pm-playbook release-check vX.Y.Z  # can this milestone be tagged?
-npx ai-pm-playbook scope-check <pr>      # is this PR landing next-cycle work on develop?
+npx @hoodiecollin/pm-playbook check --json          # every violation, each with an executable fix
+npx @hoodiecollin/pm-playbook release-check vX.Y.Z  # can this milestone be tagged?
+npx @hoodiecollin/pm-playbook scope-check <pr>      # is this PR landing next-cycle work on develop?
 ```
 
 Run `check` before you finish any task that touched issues, and act on what it reports rather than
