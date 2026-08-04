@@ -19,6 +19,7 @@ import { DEFAULT_AGENT_FILE, detectAgentFiles, stanzaStatus } from "../lib/agent
 import { RULES, checkIssues, type Violation } from "../lib/invariants.js";
 import { detectRepo, epicSubIssueCounts, listIssues, requireGh } from "../lib/gh.js";
 import { VENDOR_DIR, detectDrift } from "../lib/vendor.js";
+import { pendingForRepo } from "./migrate.js";
 import { packageVersion } from "../lib/paths.js";
 import { bool, str, type Args } from "../lib/args.js";
 
@@ -67,6 +68,16 @@ function localChecks(repoRoot: string, version: string): Violation[] {
           ? `${file} has no pm-playbook stanza — agents reading it will not know the model exists.`
           : `${file} carries a stanza from a different version.`,
       fix: `npx ai-pm-playbook init --agent-files ${file}`,
+    });
+  }
+
+  // PM103 — a MAJOR upgrade renamed or retired labels and the repo's GitHub is still on the old
+  // taxonomy. Distinct from PM100 because the fix is a GitHub mutation, not another `init`.
+  for (const m of pendingForRepo(repoRoot, version)) {
+    out.push({
+      rule: "PM103", severity: "warn", section: "—", file: `${VENDOR_DIR}/manifest.json`,
+      message: `Label migration for v${m.version} has not been applied: ${m.summary}`,
+      fix: "npx ai-pm-playbook migrate        # preview, then re-run with --yes",
     });
   }
 

@@ -107,6 +107,28 @@ export async function listMilestones(repo: string): Promise<Milestone[]> {
   return all;
 }
 
+/** Every label defined on the repo, by name. */
+export async function listLabels(repo: string): Promise<string[]> {
+  const out = await run("gh", ["label", "list", "--repo", repo, "--limit", "200", "--json", "name"]);
+  return (JSON.parse(out || "[]") as { name: string }[]).map((l) => l.name);
+}
+
+/** Rename a label in place. GitHub preserves every issue assignment across a rename. */
+export async function renameLabel(repo: string, from: string, to: string): Promise<void> {
+  await run("gh", ["label", "edit", from, "--repo", repo, "--name", to]);
+}
+
+export async function deleteLabel(repo: string, name: string): Promise<void> {
+  await run("gh", ["label", "delete", name, "--repo", repo, "--yes"]);
+}
+
+export async function relabelIssue(repo: string, issue: number, add: string, remove: string): Promise<void> {
+  await run("gh", [
+    "issue", "edit", String(issue), "--repo", repo,
+    "--add-label", add, "--remove-label", remove,
+  ]);
+}
+
 export interface IssueRef {
   number: number;
   title: string;

@@ -21,6 +21,18 @@ export const MANIFEST_FILE = "manifest.json";
 export interface Manifest {
   package: string;
   version: string;
+  /**
+   * The version through which GitHub-side label migrations have been applied.
+   *
+   * Tracked separately from `version` because the two advance independently: `init` rewrites the
+   * vendored doctrine (bumping `version`) while the repo's labels are still on the old taxonomy.
+   * Collapsing them would make `init` erase the evidence that `migrate` still had work to do.
+   *
+   * A fresh adoption is born current — `bootstrap` creates today's taxonomy directly rather than
+   * replaying history into it — so `init` seeds this with the installed version on first run and
+   * preserves whatever is already there on every subsequent run.
+   */
+  migratedThrough: string;
   /** POSIX-relative path within the vendor dir -> sha256 of the content we wrote. */
   files: Record<string, string>;
 }
@@ -103,6 +115,8 @@ export function planVendor(repoRoot: string, sourceDir: string): VendorPlan {
 export function writeVendor(repoRoot: string, sourceDir: string, version: string, pkg: string): Manifest {
   const target = join(repoRoot, VENDOR_DIR);
   const files: Record<string, string> = {};
+  // Preserve migration progress across an upgrade; seed it on first adoption.
+  const migratedThrough = readManifest(repoRoot)?.migratedThrough ?? version;
 
   for (const rel of walk(sourceDir)) {
     const content = readFileSync(join(sourceDir, ...rel.split("/")), "utf8");
@@ -112,11 +126,23 @@ export function writeVendor(repoRoot: string, sourceDir: string, version: string
     files[rel] = sha256(content);
   }
 
-  const manifest: Manifest = { package: pkg, version, files };
+  const manifest: Manifest = { package: pkg, version, migratedThrough, files };
   mkdirSync(target, { recursive: true });
   // Deliberately no timestamp: re-running `init` on an unchanged version must be a no-op diff.
   writeFileSync(join(target, MANIFEST_FILE), JSON.stringify(manifest, null, 2) + "\n", "utf8");
   return manifest;
+}
+
+/** Record that label migrations have been applied through `version`. Called only by `migrate`. */
+export function setMigratedThrough(repoRoot: string, version: string): void {
+  const manifest = readManifest(repoRoot);
+  if (!manifest) throw new Error(`No ${VENDOR_DIR}/${MANIFEST_FILE} — run \`init\` first.`);
+  const next: Manifest = { ...manifest, migratedThrough: version };
+  writeFileSync(
+    join(repoRoot, VENDOR_DIR, MANIFEST_FILE),
+    JSON.stringify(next, null, 2) + "\n",
+    "utf8",
+  );
 }
 
 export interface DriftReport {

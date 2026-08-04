@@ -17,6 +17,9 @@ export type { LabelSpec, ViewSpec } from "./lib/model.js";
 export { listIssues, listMilestones, detectRepo, epicSubIssueCounts, pullRequestScope, requireGh } from "./lib/gh.js";
 export type { Issue, Milestone, IssueRef, PullRequestScope } from "./lib/gh.js";
 
+export { MIGRATIONS, compareSemver, pendingMigrations, planMigrations } from "./lib/migrations.js";
+export type { Migration, LabelRename, LabelRemoval, LabelAction } from "./lib/migrations.js";
+
 export { detectDrift, readManifest, VENDOR_DIR } from "./lib/vendor.js";
 export type { Manifest, DriftReport } from "./lib/vendor.js";
 

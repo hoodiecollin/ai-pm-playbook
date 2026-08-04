@@ -13,6 +13,7 @@ import { RULES } from "./lib/invariants.js";
 import { bootstrap } from "./commands/bootstrap.js";
 import { check } from "./commands/check.js";
 import { init } from "./commands/init.js";
+import { migrate } from "./commands/migrate.js";
 import { releaseCheck } from "./commands/release-check.js";
 import { scopeCheck } from "./commands/scope-check.js";
 
@@ -31,6 +32,8 @@ COMMANDS
   release-check <vX.Y.Z>  Can this milestone be tagged? Exit 1 if gated or incomplete.
   scope-check <pr>        Cycle-scope gate (§5.3): refuse a PR to the integration branch that
                           closes work milestoned past the cycle in flight.
+  migrate                 Apply GitHub-side label migrations after a MAJOR upgrade.
+                          Previews by default; --yes to apply.
   rules                   Print the rule index (id, section, severity).
   version                 Print the package version.
 
@@ -49,6 +52,11 @@ BOOTSTRAP OPTIONS
   --surfaces a,b,c        Create surface:* labels — only for repos shipping >1 artifact
   --milestone vX.Y.Z      Starter milestone title
   --dry-run               Print what would happen; make no changes
+
+MIGRATE OPTIONS
+  --repo owner/name       Target repository (default: detected from the git remote)
+  --yes                   Actually apply. Without it, migrate only previews.
+  --json                  Emit the plan as JSON
 
 SCOPE-CHECK OPTIONS
   --repo owner/name       Target repository (default: detected from the git remote)
@@ -91,6 +99,8 @@ async function main(): Promise<number> {
       return bootstrap(args);
     case "check":
       return check(args, repoRoot);
+    case "migrate":
+      return migrate(args, repoRoot);
     case "release-check":
       return releaseCheck(args, repoRoot, args._[1]);
     case "scope-check":

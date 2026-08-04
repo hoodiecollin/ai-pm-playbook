@@ -47,6 +47,7 @@ export const RULES: RuleMeta[] = [
   { rule: "PM100", section: "—", severity: "warn", summary: "Vendored `.pm-playbook/` differs from the installed package." },
   { rule: "PM101", section: "—", severity: "warn", summary: "Agent instruction file is missing the pm-playbook stanza." },
   { rule: "PM102", section: "§11", severity: "warn", summary: "A markdown shadow backlog exists; the backlog lives in Issues." },
+  { rule: "PM103", section: "—", severity: "warn", summary: "Label migrations from a newer doctrine version have not been applied." },
 ];
 
 function ref(i: Issue) {
