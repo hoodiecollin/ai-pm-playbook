@@ -62,7 +62,7 @@ A `PreToolUse` hook in this plugin blocks the statically-detectable ones (`PM001
 `gh issue create/edit` runs. It only sees the command text, so it cannot catch a violation that
 depends on the issue's *existing* labels — run `check` for that.
 
-## The five things to get right
+## The six things to get right
 
 1. **Dropping `plan-next` when you assign a milestone.** The milestone *is* the schedule signal.
    Do both in one action. This is the single most common violation.
@@ -70,10 +70,23 @@ depends on the issue's *existing* labels — run `check` for that.
    artifact. It feeds the spine; it never rides it. If its conclusion commits feature work, file
    *that feature* as its own issue and milestone that instead.
 3. **Gates before code.** Nothing gets coded until a design-doc (`rfc` issue — what and why), then
-   an implementation-plan (how), exist in that order. Then BDD specs RED → GREEN.
-4. **No markdown backlog.** No `TODO.md` / `TASKS.md`. Ask "what's next" with
+   an implementation-plan (how), exist in that order. Then BDD specs RED → GREEN. Two rules about
+   the gates themselves (§9.1, §9.2):
+   - **Redoing an accepted gate? Purge the issue body FIRST**, before any new thinking, down to a
+     placeholder saying the gate is being redone. A withdrawn design left in the body does not
+     read as withdrawn — it reads as *the* design, because that is what a body is, and the
+     correction always sits in a comment nobody scrolls to. Repopulate only at acceptance.
+   - **Reconcile sources before AND after every gate.** Verify claims against code going in;
+     propagate the accepted outcome going out. A gate's input is the previous gate's output, so a
+     stale claim there is built on rather than caught.
+4. **The release-gate issue carries a ledger of EVERY versioned asset** (§5.2), defaulting each
+   row to "no change", created when the milestone opens and updated in the same pass that lands a
+   change touching that asset. An absent row and a "no change" row look identical at tag time and
+   mean opposite things. Include internal packages — their failure is the quiet one: the version
+   exists, so nothing errors, and the release ships stale source behind a correct-looking number.
+5. **No markdown backlog.** No `TODO.md` / `TASKS.md`. Ask "what's next" with
    `gh issue list --state open`. When you commit to work, `gh issue create` *first*, then implement.
-5. **Prioritize on engineering merit.** Scope, risk, foundational sequencing, identity fit — never
+6. **Prioritize on engineering merit.** Scope, risk, foundational sequencing, identity fit — never
    demand or usage, which for a pre-launch product is data nobody has. Never estimate in time
    units; effort labels are banned.
 
