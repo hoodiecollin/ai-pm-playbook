@@ -112,6 +112,16 @@ shared team state and should be a decision, not a side effect of installing a de
 
 ## CI
 
+Every command reads issues and milestones through the `GITHUB_TOKEN`, so the workflow has to say
+so. A repo whose default workflow permissions are contents-only fails with `Resource not
+accessible by integration (repository.issues)` — grant the read scopes at the top of the file:
+
+```yaml
+permissions:
+  contents: read
+  issues: read
+```
+
 ```yaml
 - run: npx @hoodiecollin/pm-playbook check --repo ${{ github.repository }}
   env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
@@ -121,6 +131,7 @@ And as a tag gate (§5.2):
 
 ```yaml
 - run: npx @hoodiecollin/pm-playbook release-check ${{ github.ref_name }}
+  env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
 ```
 
 And on pull requests targeting the integration branch (§5.3) — this refuses to land next-cycle work
@@ -131,6 +142,9 @@ constant to keep updated:
 - run: npx @hoodiecollin/pm-playbook scope-check ${{ github.event.pull_request.number }}
   env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
 ```
+
+`scope-check` reads the pull request as well, so that job additionally needs
+`pull-requests: read`.
 
 ## The Claude Code plugin (optional)
 
