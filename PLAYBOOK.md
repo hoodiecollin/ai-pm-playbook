@@ -255,6 +255,36 @@ something mechanical to check.
 File one the moment you *knowingly* defer a release obligation — the deferral is precisely when
 it is most likely to be forgotten, because everything still works locally.
 
+#### The release-gate issue MUST carry a versioned-asset ledger
+
+A release-gate issue that only lists the obligations someone happened to notice is a checklist of
+*remembered* work. The obligations you miss are, by construction, the ones nobody wrote down.
+
+**So the gate issue's body carries a table of EVERY independently versioned asset in the
+project** — every published package, every crate, every extension, every separately released
+binary — with a default row of **"no change"**. Not the ones you touched. All of them. The table
+is created when the milestone opens, before any work lands.
+
+| Asset | Released | Bump needed | Why |
+|---|---|---|---|
+| `pkg-core` | 1.4.2 | **minor** | #123 added an additive API |
+| `pkg-cli` | 0.9.0 | no change | |
+| `vscode-ext` | 0.1.0 | no change | |
+
+**As work lands, the row is updated in the same pass that lands it** — that is the whole
+mechanism. Deciding "does this need a bump?" while the change is in front of you is reliable;
+reconstructing it at tag time from a diff is not.
+
+**Why the default row must exist rather than be implied.** An absent row and a "no change" row
+look identical at tag time, but they mean opposite things: one is *"verified untouched"*, the
+other is *"never considered"*. Only the explicit table can distinguish them, and the whole point
+of the gate is to answer "are we releasable?" mechanically.
+
+**Include assets you do not think of as products.** Internal packages that consumers never name
+still resolve from a registry, and the failure they produce is the quiet one: the version
+*exists*, so nothing errors, and the release ships stale source behind a correct-looking version
+number. A publish dry-run does not catch this. The ledger is the only thing that does.
+
 ### 5.3 One integration branch, not one per version
 
 Once `develop` exists, the natural next thought is a second one: `v0.5-develop` alongside
@@ -535,6 +565,8 @@ Standing rules that keep Issues the single, always-current source of truth:
 - **Reconcile sources at every gate boundary, both directions** (§9.2). Task boundaries are the
   floor; gates are the ones that must never be skipped, because a gate's input is the previous
   gate's output and a stale claim there is built on rather than caught.
+- **Keep the release-gate ledger current as you go** (§5.2). When a change touches an
+  independently versioned asset, set that asset's row in the same pass — not at tag time.
 - **Prioritize on engineering merit, not demand.** Never justify building or deferring on "demand,"
   "usage," or "when users want it" — for a pre-launch product those signals *don't exist*, so
   leaning on them smuggles in data you don't have. Justify on **scope, risk, foundational
