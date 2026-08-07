@@ -19,20 +19,9 @@ import { backlogRoot, readIndex, readTree, writeIndex, writeTree } from "../lib/
 import { planSync } from "../lib/backlog/plan.js";
 import { projectionHash } from "../lib/backlog/project.js";
 import { checkIssues } from "../lib/invariants.js";
+import { snapshot } from "../lib/backlog/lint.js";
 import { bool, str, type Args } from "../lib/args.js";
 import type { BacklogEntity } from "../lib/backlog/model.js";
-
-/** Project entities onto the shape the invariants read. */
-function asIssues(entities: BacklogEntity[], repo: string) {
-  return entities.map((e) => ({
-    number: e.number,
-    title: e.title,
-    state: e.state,
-    url: `https://github.com/${repo}/issues/${e.number}`,
-    labels: e.labels,
-    milestone: e.milestone,
-  }));
-}
 
 export async function push(args: Args, repoRoot: string): Promise<number> {
   const apply = bool(args, "yes");
@@ -65,11 +54,10 @@ export async function push(args: Args, repoRoot: string): Promise<number> {
    */
   const resulting = new Map(remote);
   for (const e of plan.push) resulting.set(e.number, e);
-  const parentOf = new Map(
-    [...resulting.values()].filter((e) => e.parent !== null).map((e) => [e.number, e.parent!]),
-  );
-  const violations = checkIssues(asIssues([...resulting.values()], repo), null, parentOf)
-    .filter((v) => v.severity === "error");
+
+  // Unscoped for now: the whole resulting backlog is judged. Narrowed in the next commit.
+  const { issues, parentage } = snapshot(resulting.values(), repo, "all");
+  const violations = checkIssues(issues, null, parentage).filter((v) => v.severity === "error");
 
   if (json) {
     console.log(JSON.stringify({

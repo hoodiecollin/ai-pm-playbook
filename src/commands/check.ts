@@ -20,6 +20,7 @@ import { RULES, checkIssues, type Violation } from "../lib/invariants.js";
 import { detectRepo, epicSubIssueCounts, listIssues, requireGh } from "../lib/gh.js";
 import { BACKLOG_DIR, VENDOR_DIR, detectDrift } from "../lib/vendor.js";
 import { backlogRoot, listConflicts, readIndexRepo, readTree } from "../lib/backlog/store.js";
+import { snapshot } from "../lib/backlog/lint.js";
 import { pendingForRepo } from "./migrate.js";
 import { packageVersion } from "../lib/paths.js";
 import { bool, str, type Args } from "../lib/args.js";
@@ -133,19 +134,11 @@ export async function check(args: Args, repoRoot: string): Promise<number> {
     const entities = readTree(root);
     if (entities.size) {
       repo = readIndexRepo(root);
-      scanned = entities.size;
-      const issues = [...entities.values()].map((e) => ({
-        number: e.number,
-        title: e.title,
-        state: e.state,
-        url: `https://github.com/${repo ?? "unknown/unknown"}/issues/${e.number}`,
-        labels: e.labels,
-        milestone: e.milestone,
-      }));
-      const parentOf = new Map(
-        [...entities.values()].filter((e) => e.parent !== null).map((e) => [e.number, e.parent!]),
-      );
-      violations.push(...checkIssues(issues, null, parentOf));
+      // Scoped by `state`, exactly as `listIssues` scopes the networked tier. The local tree holds
+      // every state, so without this the two tiers lint different issue sets and disagree.
+      const { issues, parentage } = snapshot(entities.values(), repo, state);
+      scanned = issues.length;
+      violations.push(...checkIssues(issues, null, parentage));
       notes.push(`Linted the materialized backlog at ${VENDOR_DIR}/${BACKLOG_DIR} — run \`pull\` if it may be stale.`);
     }
   }

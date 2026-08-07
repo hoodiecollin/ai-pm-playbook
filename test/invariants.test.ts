@@ -26,8 +26,18 @@ function issue(partial: Partial<Issue> = {}): Issue {
 const rules = (issues: Issue[], counts?: Map<number, number> | null) =>
   checkIssues(issues, counts).map((v) => v.rule);
 
+/**
+ * Parentage carries its own index, so these helpers build it from the same issues by default —
+ * the common case. `rulesWithHiddenParent` covers the case that matters: a parent the linted scope
+ * excludes.
+ */
+const parentage = (all: Issue[], parentOf: Map<number, number>) => ({
+  parentOf,
+  all: new Map(all.map((i) => [i.number, i])),
+});
+
 const rulesWithParents = (issues: Issue[], parentOf: Map<number, number>) =>
-  checkIssues(issues, null, parentOf).map((v) => v.rule);
+  checkIssues(issues, null, parentage(issues, parentOf)).map((v) => v.rule);
 
 describe("PM105 — only an `epic` may have sub-issues (§7.1)", () => {
   test("flags a standalone issue that has children", () => {
@@ -45,9 +55,25 @@ describe("PM105 — only an `epic` may have sub-issues (§7.1)", () => {
   test("reports the parent, not the child — the parent is what is mis-modelled", () => {
     const parent = issue({ labels: [] });
     const child = issue();
-    const found = checkIssues([parent, child], null, new Map([[child.number, parent.number]]));
+    const found = checkIssues([parent, child], null, parentage([parent, child], new Map([[child.number, parent.number]])));
     expect(found[0]!.issue!.number).toBe(parent.number);
     expect(found[0]!.fix).toContain(`#${child.number}`);
+  });
+
+  test("stays armed when the parent is outside the linted scope — a closed epic is still an epic", () => {
+    // The live case that found this: forgedb #218 is OPEN under CLOSED epic #167. Resolving the
+    // parent through the linted (open-only) set would report nothing at all.
+    const parent = issue({ number: 167, state: "CLOSED", labels: [] });
+    const child = issue({ number: 218 });
+    const found = checkIssues([child], null, parentage([parent, child], new Map([[218, 167]])));
+    expect(found.map((v) => v.rule)).toEqual(["PM105"]);
+    expect(found[0]!.issue!.number).toBe(167);
+  });
+
+  test("a closed parent that IS an epic stays silent", () => {
+    const parent = issue({ number: 167, state: "CLOSED", labels: ["epic"] });
+    const child = issue({ number: 218 });
+    expect(checkIssues([child], null, parentage([parent, child], new Map([[218, 167]])))).toEqual([]);
   });
 
   test("is skipped rather than guessed when parentage is unknown", () => {

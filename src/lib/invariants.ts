@@ -61,28 +61,42 @@ function surfaceLabels(i: Issue): string[] {
 }
 
 /**
+ * Structural parentage, carried separately from the linted issue set.
+ *
+ * It carries its own index on purpose. The linted set is scoped by state — open-only by default —
+ * but parentage is not a state-dependent property: a closed epic is still an epic, and a closed
+ * parent that is *not* labelled `epic` is still mis-modelled. Resolving the parent through the
+ * scoped set would disarm PM105 for exactly the closed parents worth auditing.
+ */
+export interface Parentage {
+  /** Sub-issue number → parent number. */
+  parentOf: Map<number, number>;
+  /** Every entity by number, including entities outside the linted scope. */
+  all: Map<number, Issue>;
+}
+
+/**
  * Evaluate every issue-level invariant. Pure — takes data, returns findings.
  *
- * `parentOf` maps a sub-issue's number to its parent's. It is optional because it is only knowable
- * from a materialized backlog or a GraphQL fetch; without it, PM105 is skipped rather than guessed.
+ * `parentage` is optional because it is only knowable from a materialized backlog or a GraphQL
+ * fetch; without it, PM105 is skipped rather than guessed.
  */
 export function checkIssues(
   issues: Issue[],
   subIssueCounts?: Map<number, number> | null,
-  parentOf?: Map<number, number> | null,
+  parentage?: Parentage | null,
 ): Violation[] {
   const out: Violation[] = [];
-  const byNumber = new Map(issues.map((i) => [i.number, i]));
 
   // PM105 — only an `epic` may have sub-issues (§7.1). Checked from the parent's side: a child
   // naming a non-epic parent means the *parent* is mis-modelled, so that is where the fix belongs.
-  if (parentOf) {
+  if (parentage) {
     const childrenOf = new Map<number, number[]>();
-    for (const [child, parent] of parentOf) {
+    for (const [child, parent] of parentage.parentOf) {
       childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), child]);
     }
     for (const [parent, children] of [...childrenOf].sort((a, b) => a[0] - b[0])) {
-      const issue = byNumber.get(parent);
+      const issue = parentage.all.get(parent);
       if (!issue || issue.labels.includes("epic")) continue;
       out.push({
         rule: "PM105", severity: "error", section: "§7.1", issue: ref(issue),
