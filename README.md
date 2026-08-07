@@ -162,7 +162,7 @@ constant to keep updated:
   standalone/42/body.md          epics/12/body.md
   standalone/_/41/…  ← closed    epics/12/subissues/15/body.md
   new/<slug>/body.md             ← drafts with no number yet; `create` publishes them
-  .sync/                         ← base snapshot, label + milestone tables
+  .sync/                         ← the base (one projection hash per issue), label + milestone tables
 ```
 
 **This is not a shadow backlog, and the distinction is precise: a second copy is a shadow backlog
@@ -180,6 +180,9 @@ comments — so a new comment does block a stale body push, on purpose.
 The payoff beyond speed: **`check --no-remote` now lints the real backlog.** It used to skip every
 issue-level invariant without a network, so a sandbox or air-gapped CI job could only check doctrine
 wiring. `PM105` is only checkable at all this way, because parentage isn't in the REST issue list.
+Both tiers lint the same scope — open issues, or everything under `--all-states` — so the offline
+answer and the CI answer agree. `PM105` is the deliberate exception: parentage is structural, so a
+closed epic is still resolved as a parent even when it is outside the linted scope.
 
 ## The Claude Code plugin (optional)
 

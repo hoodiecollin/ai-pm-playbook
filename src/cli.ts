@@ -85,7 +85,8 @@ PUSH OPTIONS
 
 CHECK OPTIONS
   --repo owner/name       Target repository (default: detected from the git remote)
-  --no-remote             Local checks only — no network, no auth
+  --no-remote             No network, no auth. Lints the materialized backlog if pull has run,
+                          so the same issue-level rules apply — same state scope as online.
   --all-states            Also lint closed issues (use for a migration audit)
   --strict                Treat warnings as failures
   --json                  Emit the full report as JSON (the agent-facing interface)
