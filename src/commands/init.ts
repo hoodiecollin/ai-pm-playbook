@@ -33,9 +33,10 @@ function ensureIgnored(repoRoot: string, pattern: string, dry: boolean): "presen
   }
 
   if (!dry) {
-    const prefix = current === "" || current.endsWith("\n") ? "" : "\n";
-    const preamble = "\n# Materialized backlog — machine-owned local state, rewritten by `pm-playbook pull`.\n";
-    writeFileSync(path, `${current}${prefix}${preamble}${pattern}\n`, "utf8");
+    // Separate from existing rules with a blank line, but don't open a new file with one.
+    const gap = current === "" ? "" : current.endsWith("\n") ? "\n" : "\n\n";
+    const preamble = "# Materialized backlog — machine-owned local state, rewritten by `pm-playbook pull`.\n";
+    writeFileSync(path, `${current}${gap}${preamble}${pattern}\n`, "utf8");
   }
   return "added";
 }
