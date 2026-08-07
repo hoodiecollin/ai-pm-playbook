@@ -6,6 +6,10 @@
  * consumer of this playbook is already a `gh` user.
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+
 import { run, tryRun } from "./sh.js";
 import type { BacklogEntity, Comment, EntityKind } from "./backlog/model.js";
 
@@ -344,6 +348,47 @@ async function fetchAllComments(
   }
 
   return all;
+}
+
+/**
+ * Apply a local edit to an issue: title, body, labels and milestone, and nothing else.
+ *
+ * State is absent on purpose (#1): closing has release-check and milestone consequences, so it
+ * stays a command rather than a consequence of editing a word in a file. Comments are absent for
+ * the same class of reason — authorship cannot be represented in a file the local agent owns.
+ *
+ * The body goes via a temp file rather than an argument: issue bodies routinely exceed argv limits
+ * and contain everything that mangles a shell.
+ */
+export async function updateIssue(repo: string, local: BacklogEntity, remote: BacklogEntity): Promise<void> {
+  const args = ["issue", "edit", String(local.number), "--repo", repo];
+
+  if (local.title !== remote.title) args.push("--title", local.title);
+
+  let bodyFile: string | null = null;
+  if (local.body !== remote.body) {
+    bodyFile = join(mkdtempSync(join(tmpdir(), "pm-push-")), "body.md");
+    writeFileSync(bodyFile, local.body, "utf8");
+    args.push("--body-file", bodyFile);
+  }
+
+  for (const l of local.labels.filter((l) => !remote.labels.includes(l))) args.push("--add-label", l);
+  for (const l of remote.labels.filter((l) => !local.labels.includes(l))) args.push("--remove-label", l);
+
+  if (local.milestone !== remote.milestone) {
+    // `gh issue edit --milestone` resolves OPEN milestones only; a closed one needs the REST PATCH.
+    if (local.milestone) args.push("--milestone", local.milestone);
+    else args.push("--remove-milestone");
+  }
+
+  // Nothing but state or comments changed — those are not ours to push.
+  if (args.length === 5) return;
+
+  try {
+    await run("gh", args);
+  } finally {
+    if (bodyFile) rmSync(dirname(bodyFile), { recursive: true, force: true });
+  }
 }
 
 /**
