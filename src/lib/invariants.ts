@@ -48,6 +48,8 @@ export const RULES: RuleMeta[] = [
   { rule: "PM101", section: "—", severity: "warn", summary: "Agent instruction file is missing the pm-playbook stanza." },
   { rule: "PM102", section: "§11", severity: "warn", summary: "A markdown shadow backlog exists; the backlog lives in Issues." },
   { rule: "PM103", section: "—", severity: "warn", summary: "Label migrations from a newer doctrine version have not been applied." },
+  { rule: "PM104", section: "§11", severity: "warn", summary: "Unresolved backlog conflict drafts are waiting for a decision." },
+  { rule: "PM105", section: "§7.1", severity: "error", summary: "Only an `epic` may have sub-issues." },
 ];
 
 function ref(i: Issue) {
@@ -58,9 +60,39 @@ function surfaceLabels(i: Issue): string[] {
   return i.labels.filter((l) => l.startsWith(SURFACE_PREFIX));
 }
 
-/** Evaluate every issue-level invariant. Pure — takes data, returns findings. */
-export function checkIssues(issues: Issue[], subIssueCounts?: Map<number, number> | null): Violation[] {
+/**
+ * Evaluate every issue-level invariant. Pure — takes data, returns findings.
+ *
+ * `parentOf` maps a sub-issue's number to its parent's. It is optional because it is only knowable
+ * from a materialized backlog or a GraphQL fetch; without it, PM105 is skipped rather than guessed.
+ */
+export function checkIssues(
+  issues: Issue[],
+  subIssueCounts?: Map<number, number> | null,
+  parentOf?: Map<number, number> | null,
+): Violation[] {
   const out: Violation[] = [];
+  const byNumber = new Map(issues.map((i) => [i.number, i]));
+
+  // PM105 — only an `epic` may have sub-issues (§7.1). Checked from the parent's side: a child
+  // naming a non-epic parent means the *parent* is mis-modelled, so that is where the fix belongs.
+  if (parentOf) {
+    const childrenOf = new Map<number, number[]>();
+    for (const [child, parent] of parentOf) {
+      childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), child]);
+    }
+    for (const [parent, children] of [...childrenOf].sort((a, b) => a[0] - b[0])) {
+      const issue = byNumber.get(parent);
+      if (!issue || issue.labels.includes("epic")) continue;
+      out.push({
+        rule: "PM105", severity: "error", section: "§7.1", issue: ref(issue),
+        message: `#${parent} has ${children.length} sub-issue(s) but is not labelled \`epic\`. Only an epic decomposes.`,
+        fix: `Either label it: gh issue edit ${parent} --add-label epic — or detach the children: ${children
+          .map((c) => `#${c}`)
+          .join(", ")}`,
+      });
+    }
+  }
 
   for (const i of issues) {
     const has = (l: string) => i.labels.includes(l);

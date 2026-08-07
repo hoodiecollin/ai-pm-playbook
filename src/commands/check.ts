@@ -18,7 +18,8 @@ import { join } from "node:path";
 import { DEFAULT_AGENT_FILE, detectAgentFiles, stanzaStatus } from "../lib/agent-files.js";
 import { RULES, checkIssues, type Violation } from "../lib/invariants.js";
 import { detectRepo, epicSubIssueCounts, listIssues, requireGh } from "../lib/gh.js";
-import { VENDOR_DIR, detectDrift } from "../lib/vendor.js";
+import { BACKLOG_DIR, VENDOR_DIR, detectDrift } from "../lib/vendor.js";
+import { backlogRoot, listConflicts, readIndexRepo, readTree } from "../lib/backlog/store.js";
 import { pendingForRepo } from "./migrate.js";
 import { packageVersion } from "../lib/paths.js";
 import { bool, str, type Args } from "../lib/args.js";
@@ -81,13 +82,24 @@ function localChecks(repoRoot: string, version: string): Violation[] {
     });
   }
 
+  // PM104 — conflict drafts that nobody has resolved. A gitignored directory quietly accumulating
+  // abandoned edits is the §11 failure the whole feature is built to avoid, arrived at by accretion.
+  const conflicts = listConflicts(backlogRoot(repoRoot));
+  if (conflicts.length) {
+    out.push({
+      rule: "PM104", severity: "warn", section: "§11", file: `${VENDOR_DIR}/${BACKLOG_DIR}/conflicts`,
+      message: `${conflicts.length} unresolved conflict draft(s): ${conflicts.join(", ")}. Each is a local edit that lost a race and is waiting on a decision.`,
+      fix: "Re-apply each edit to the current issue and delete the draft, or delete it if it is no longer wanted.",
+    });
+  }
+
   // PM102 — a markdown shadow backlog.
   for (const name of SHADOW_BACKLOGS) {
     if (!existsSync(join(repoRoot, name))) continue;
     out.push({
       rule: "PM102", severity: "warn", section: "§11", file: name,
       message: `${name} looks like a shadow backlog. Issues are the backlog; a markdown list is a second source of truth that drifts.`,
-      fix: `Move its live entries to issues (\`gh issue create\`) and delete ${name}. Derived, generated roadmaps are fine — mark them generated.`,
+      fix: `Move its live entries to issues (\`gh issue create\`) and delete ${name}. Derived, generated roadmaps are fine — mark them generated, or materialize the real backlog with \`pm-playbook pull\`.`,
     });
   }
 
@@ -105,6 +117,38 @@ export async function check(args: Args, repoRoot: string): Promise<number> {
   let repo: string | null = null;
   let scanned = 0;
   const notes: string[] = [];
+
+  /*
+   * Offline, the materialized backlog stands in for the network.
+   *
+   * This is what the whole feature buys: `--no-remote` used to skip every issue-level invariant,
+   * so a sandbox or an air-gapped CI job could only lint doctrine wiring. With a snapshot it lints
+   * the real backlog — and PM105 becomes checkable at all, since parentage is only knowable here.
+   *
+   * The default path stays network-authoritative on purpose: linting a snapshot that might be
+   * hours stale, when GitHub is reachable, would trade one drift class for another.
+   */
+  if (noRemote) {
+    const root = backlogRoot(repoRoot);
+    const entities = readTree(root);
+    if (entities.size) {
+      repo = readIndexRepo(root);
+      scanned = entities.size;
+      const issues = [...entities.values()].map((e) => ({
+        number: e.number,
+        title: e.title,
+        state: e.state,
+        url: `https://github.com/${repo ?? "unknown/unknown"}/issues/${e.number}`,
+        labels: e.labels,
+        milestone: e.milestone,
+      }));
+      const parentOf = new Map(
+        [...entities.values()].filter((e) => e.parent !== null).map((e) => [e.number, e.parent!]),
+      );
+      violations.push(...checkIssues(issues, null, parentOf));
+      notes.push(`Linted the materialized backlog at ${VENDOR_DIR}/${BACKLOG_DIR} — run \`pull\` if it may be stale.`);
+    }
+  }
 
   if (!noRemote) {
     repo = str(args, "repo") ?? (await detectRepo(repoRoot));

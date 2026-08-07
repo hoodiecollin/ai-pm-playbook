@@ -122,6 +122,17 @@ export function readIndex(root: string): Map<number, string> {
   }
 }
 
+/** The repository the snapshot was pulled from, so offline output can still cite real issue URLs. */
+export function readIndexRepo(root: string): string | null {
+  const path = join(root, SYNC_DIR, INDEX_FILE);
+  if (!existsSync(path)) return null;
+  try {
+    return (JSON.parse(readFileSync(path, "utf8")) as { repo?: string }).repo ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Record the base snapshot.
  *

@@ -26,6 +26,40 @@ function issue(partial: Partial<Issue> = {}): Issue {
 const rules = (issues: Issue[], counts?: Map<number, number> | null) =>
   checkIssues(issues, counts).map((v) => v.rule);
 
+const rulesWithParents = (issues: Issue[], parentOf: Map<number, number>) =>
+  checkIssues(issues, null, parentOf).map((v) => v.rule);
+
+describe("PM105 — only an `epic` may have sub-issues (§7.1)", () => {
+  test("flags a standalone issue that has children", () => {
+    const parent = issue({ labels: [] });
+    const child = issue();
+    expect(rulesWithParents([parent, child], new Map([[child.number, parent.number]]))).toContain("PM105");
+  });
+
+  test("allows an epic to have children", () => {
+    const parent = issue({ labels: ["epic"] });
+    const child = issue();
+    expect(rulesWithParents([parent, child], new Map([[child.number, parent.number]]))).toEqual([]);
+  });
+
+  test("reports the parent, not the child — the parent is what is mis-modelled", () => {
+    const parent = issue({ labels: [] });
+    const child = issue();
+    const found = checkIssues([parent, child], null, new Map([[child.number, parent.number]]));
+    expect(found[0]!.issue!.number).toBe(parent.number);
+    expect(found[0]!.fix).toContain(`#${child.number}`);
+  });
+
+  test("is skipped rather than guessed when parentage is unknown", () => {
+    expect(rules([issue({ labels: [] })])).toEqual([]);
+  });
+
+  test("ignores a parent that is not in the scanned set", () => {
+    const child = issue();
+    expect(rulesWithParents([child], new Map([[child.number, 9999]]))).toEqual([]);
+  });
+});
+
 describe("PM001 — plan-next ⊕ milestone (§3.2)", () => {
   test("flags the collision", () => {
     expect(rules([issue({ labels: ["plan-next"], milestone: "v0.4.0" })])).toContain("PM001");
