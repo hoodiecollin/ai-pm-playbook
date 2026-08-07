@@ -14,6 +14,7 @@ import { bootstrap } from "./commands/bootstrap.js";
 import { check } from "./commands/check.js";
 import { init } from "./commands/init.js";
 import { migrate } from "./commands/migrate.js";
+import { pull } from "./commands/pull.js";
 import { releaseCheck } from "./commands/release-check.js";
 import { scopeCheck } from "./commands/scope-check.js";
 
@@ -29,6 +30,8 @@ COMMANDS
   bootstrap               Provision labels, a starter milestone, and the filtered Project views
                           on GitHub. Idempotent.
   check                   Lint the repo against the playbook invariants. Exit 1 on violations.
+  pull                    Materialize the backlog (issues, epics, sub-issues, comments) to
+                          .pm-playbook/backlog/ and record the base snapshot.
   release-check <vX.Y.Z>  Can this milestone be tagged? Exit 1 if gated or incomplete.
   scope-check <pr>        Cycle-scope gate (§5.3): refuse a PR to the integration branch that
                           closes work milestoned past the cycle in flight.
@@ -63,6 +66,11 @@ SCOPE-CHECK OPTIONS
   --integration-branch    Branch the gate applies to (default: develop)
   --strict                Treat the PM009 advisory tier as a failure
   --json                  Emit the report as JSON
+
+PULL OPTIONS
+  --repo owner/name       Target repository (default: detected from the git remote)
+  --dry-run               Print what would change; write nothing
+  --json                  Emit the plan as JSON
 
 CHECK OPTIONS
   --repo owner/name       Target repository (default: detected from the git remote)
@@ -101,6 +109,8 @@ async function main(): Promise<number> {
       return check(args, repoRoot);
     case "migrate":
       return migrate(args, repoRoot);
+    case "pull":
+      return pull(args, repoRoot);
     case "release-check":
       return releaseCheck(args, repoRoot, args._[1]);
     case "scope-check":

@@ -7,6 +7,7 @@
  */
 
 import { run, tryRun } from "./sh.js";
+import type { BacklogEntity, Comment, EntityKind } from "./backlog/model.js";
 
 export interface Issue {
   number: number;
@@ -198,6 +199,151 @@ export async function pullRequestScope(repo: string, pr: number): Promise<PullRe
   );
 
   return { number: node.number, title: node.title, baseRefName: node.baseRefName, closing, mentioned };
+}
+
+interface RawComment {
+  databaseId: number;
+  author: { login: string } | null;
+  createdAt: string;
+  body: string;
+}
+
+interface RawBacklogNode {
+  number: number;
+  title: string;
+  state: string;
+  body: string;
+  labels: { nodes: { name: string }[] } | null;
+  milestone: { title: string } | null;
+  parent: { number: number } | null;
+  comments: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: RawComment[] };
+}
+
+const BACKLOG_QUERY = `
+  query($owner:String!,$name:String!,$after:String){
+    repository(owner:$owner,name:$name){
+      issues(first:50, states:[OPEN,CLOSED], after:$after){
+        pageInfo{ hasNextPage endCursor }
+        nodes{
+          number title state body
+          labels(first:50){ nodes{ name } }
+          milestone{ title }
+          parent{ number }
+          comments(first:100){
+            pageInfo{ hasNextPage endCursor }
+            nodes{ databaseId author{ login } createdAt body }
+          }
+        }
+      }
+    }
+  }`;
+
+const COMMENTS_QUERY = `
+  query($owner:String!,$name:String!,$number:Int!,$after:String){
+    repository(owner:$owner,name:$name){
+      issue(number:$number){
+        comments(first:100, after:$after){
+          pageInfo{ hasNextPage endCursor }
+          nodes{ databaseId author{ login } createdAt body }
+        }
+      }
+    }
+  }`;
+
+function toComment(c: RawComment): Comment {
+  return { id: c.databaseId, author: c.author?.login ?? "ghost", createdAt: c.createdAt, body: c.body };
+}
+
+/**
+ * Map one GraphQL issue node onto a backlog entity.
+ *
+ * Kind is *derived*, never declared: a `parent` makes it a sub-issue, the `epic` label makes it an
+ * epic, everything else is standalone. That is what makes "a standalone issue has no sub-issues"
+ * true by construction rather than by convention (§7.1).
+ */
+export function toBacklogEntity(node: RawBacklogNode): BacklogEntity {
+  const labels = (node.labels?.nodes ?? []).map((l) => l.name);
+  const parent = node.parent?.number ?? null;
+  const kind: EntityKind = parent !== null ? "subissue" : labels.includes("epic") ? "epic" : "standalone";
+  return {
+    number: node.number,
+    kind,
+    parent,
+    title: node.title,
+    state: node.state.toUpperCase() === "CLOSED" ? "CLOSED" : "OPEN",
+    labels,
+    milestone: node.milestone?.title ?? null,
+    body: node.body ?? "",
+    comments: node.comments.nodes.map(toComment),
+  };
+}
+
+/**
+ * The entire backlog — every issue, open and closed, with its full comment thread.
+ *
+ * **Always all states, deliberately.** Scoping the fetch would make an out-of-scope issue
+ * indistinguishable from a deleted one, and `planSync` resolves "gone from the remote" by deleting
+ * the local copy — so a narrower fetch would quietly destroy the local mirror of every closed issue.
+ *
+ * Unlike `epicSubIssueCounts`, this refuses to degrade. A partial backlog reads as "the remote
+ * changed" across every missing entity, which manufactures conflicts wholesale.
+ */
+export async function fetchBacklog(repo: string): Promise<BacklogEntity[]> {
+  const [owner, name] = repo.split("/");
+  const out: BacklogEntity[] = [];
+  let after: string | null = null;
+
+  for (;;) {
+    const args = ["api", "graphql", "-f", `query=${BACKLOG_QUERY}`, "-F", `owner=${owner}`, "-F", `name=${name}`];
+    if (after) args.push("-F", `after=${after}`);
+    const res = await run("gh", args);
+
+    const page = JSON.parse(res)?.data?.repository?.issues as
+      | { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: RawBacklogNode[] }
+      | undefined;
+    if (!page) throw new Error(`${repo}: could not read issues — check the token's repository scope.`);
+
+    for (const node of page.nodes) {
+      const entity = toBacklogEntity(node);
+      // A truncated thread would hash as stable-but-wrong: it never flaps, it just silently omits
+      // the tail. Finish the thread rather than accept a partial fetch.
+      if (node.comments.pageInfo.hasNextPage) {
+        entity.comments = await fetchAllComments(repo, node.number, entity.comments, node.comments.pageInfo.endCursor);
+      }
+      out.push(entity);
+    }
+
+    if (!page.pageInfo.hasNextPage) break;
+    after = page.pageInfo.endCursor;
+  }
+
+  return out;
+}
+
+async function fetchAllComments(
+  repo: string,
+  number: number,
+  first: Comment[],
+  cursor: string | null,
+): Promise<Comment[]> {
+  const [owner, name] = repo.split("/");
+  const all = [...first];
+  let after = cursor;
+
+  while (after) {
+    const res = await run("gh", [
+      "api", "graphql", "-f", `query=${COMMENTS_QUERY}`,
+      "-F", `owner=${owner}`, "-F", `name=${name}`, "-F", `number=${number}`, "-F", `after=${after}`,
+    ]);
+    const page = JSON.parse(res)?.data?.repository?.issue?.comments as
+      | { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: RawComment[] }
+      | undefined;
+    if (!page) throw new Error(`${repo}#${number}: comment thread could not be paginated.`);
+    all.push(...page.nodes.map(toComment));
+    after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+  }
+
+  return all;
 }
 
 /**
