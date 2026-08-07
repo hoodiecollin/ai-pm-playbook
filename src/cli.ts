@@ -16,6 +16,7 @@ import { init } from "./commands/init.js";
 import { migrate } from "./commands/migrate.js";
 import { pull } from "./commands/pull.js";
 import { push } from "./commands/push.js";
+import { create } from "./commands/create.js";
 import { releaseCheck } from "./commands/release-check.js";
 import { scopeCheck } from "./commands/scope-check.js";
 
@@ -35,6 +36,8 @@ COMMANDS
                           .pm-playbook/backlog/ and record the base snapshot.
   push                    Send local edits back to GitHub. Refuses any entity whose remote also
                           moved. Previews by default; --yes to apply.
+  create                  Publish drafts under backlog/new/. Validates labels, milestones and the
+                          invariants offline first. Previews by default; --yes to apply.
   release-check <vX.Y.Z>  Can this milestone be tagged? Exit 1 if gated or incomplete.
   scope-check <pr>        Cycle-scope gate (§5.3): refuse a PR to the integration branch that
                           closes work milestoned past the cycle in flight.
@@ -121,6 +124,8 @@ async function main(): Promise<number> {
       return pull(args, repoRoot);
     case "push":
       return push(args, repoRoot);
+    case "create":
+      return create(args, repoRoot);
     case "release-check":
       return releaseCheck(args, repoRoot, args._[1]);
     case "scope-check":

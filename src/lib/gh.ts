@@ -391,6 +391,44 @@ export async function updateIssue(repo: string, local: BacklogEntity, remote: Ba
   }
 }
 
+/** Create an issue and return its number. */
+export async function createIssue(
+  repo: string,
+  spec: { title: string; body: string; labels: string[]; milestone: string | null },
+): Promise<number> {
+  const dir = mkdtempSync(join(tmpdir(), "pm-create-"));
+  const bodyFile = join(dir, "body.md");
+  writeFileSync(bodyFile, spec.body, "utf8");
+
+  const args = ["issue", "create", "--repo", repo, "--title", spec.title, "--body-file", bodyFile];
+  for (const l of spec.labels) args.push("--label", l);
+  if (spec.milestone) args.push("--milestone", spec.milestone);
+
+  try {
+    const out = await run("gh", args);
+    const m = /\/issues\/(\d+)\s*$/.exec(out.trim());
+    if (!m) throw new Error(`could not read the new issue number from \`gh\`: ${out.trim()}`);
+    return Number(m[1]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Link a child issue to its parent via the native sub-issue relation.
+ *
+ * The endpoint takes the child's REST database id, NOT its issue number — passing the number
+ * silently links the wrong issue on any repo where the two have diverged.
+ */
+export async function addSubIssue(repo: string, parent: number, child: number): Promise<void> {
+  const id = (await run("gh", ["api", `repos/${repo}/issues/${child}`, "--jq", ".id"])).trim();
+  await run("gh", [
+    "api", "-X", "POST", `repos/${repo}/issues/${parent}/sub_issues`,
+    "-H", "Accept: application/vnd.github+json",
+    "-F", `sub_issue_id=${id}`,
+  ]);
+}
+
 /**
  * Native sub-issue counts for every open `epic`, keyed by issue number.
  *
