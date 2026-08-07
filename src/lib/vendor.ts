@@ -11,12 +11,25 @@
  * applied to prose.
  */
 
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import { sha256, walk } from "./fs-util.js";
+
+export { sha256, walk };
 
 export const VENDOR_DIR = ".pm-playbook";
 export const MANIFEST_FILE = "manifest.json";
+
+/**
+ * The materialized backlog, which lives under the vendor dir but is NOT vendored doctrine.
+ *
+ * It is machine-owned local state: `pull` writes it, it is gitignored in consumer repos, and the
+ * package ships none of it. That makes it invisible to `walk(sourceDir)` and therefore an orphan
+ * by default — which would offer the entire local backlog for deletion on the next `init --force`.
+ * Every scan over the vendor dir must prune it.
+ */
+export const BACKLOG_DIR = "backlog";
 
 export interface Manifest {
   package: string;
@@ -35,22 +48,6 @@ export interface Manifest {
   migratedThrough: string;
   /** POSIX-relative path within the vendor dir -> sha256 of the content we wrote. */
   files: Record<string, string>;
-}
-
-export function sha256(content: string | Buffer): string {
-  return createHash("sha256").update(content).digest("hex");
-}
-
-/** Recursively list files under `dir`, returned as POSIX-relative paths. */
-export function walk(dir: string, base = dir): string[] {
-  if (!existsSync(dir)) return [];
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) out.push(...walk(full, base));
-    else out.push(relative(base, full).split(sep).join("/"));
-  }
-  return out.sort();
 }
 
 export function readManifest(repoRoot: string): Manifest | null {
@@ -103,7 +100,7 @@ export function planVendor(repoRoot: string, sourceDir: string): VendorPlan {
   }
 
   const shippedSet = new Set(shipped);
-  for (const rel of walk(target)) {
+  for (const rel of walk(target, target, (d) => d === BACKLOG_DIR)) {
     if (rel === MANIFEST_FILE) continue;
     if (!shippedSet.has(rel)) plan.orphaned.push(rel);
   }
