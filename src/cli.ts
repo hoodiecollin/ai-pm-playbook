@@ -105,9 +105,12 @@ async function main(): Promise<number> {
 
   const command = args._[0];
 
-  if (!command || argv.includes("-h") || argv.includes("--help") || bool(args, "help")) {
+  // Asking for help is a request that succeeded, whether or not a command was named. Only a bare
+  // invocation is a usage error — `pm-playbook --help` in a `set -e` script must not kill it.
+  const askedForHelp = argv.includes("-h") || argv.includes("--help") || bool(args, "help");
+  if (!command || askedForHelp) {
     console.log(HELP);
-    return command ? 0 : 1;
+    return askedForHelp ? 0 : 1;
   }
 
   const repoRoot = findRepoRoot(str(args, "dir") ?? process.cwd());
