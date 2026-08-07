@@ -7,14 +7,38 @@
  * not a side effect of installing a dependency.
  */
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { DEFAULT_AGENT_FILE, detectAgentFiles, planStanza, writeStanza } from "../lib/agent-files.js";
 import { PLAYBOOK_ASSETS, TEMPLATE_ASSETS, packageName, packageVersion } from "../lib/paths.js";
-import { VENDOR_DIR, planVendor, writeVendor } from "../lib/vendor.js";
+import { BACKLOG_DIR, VENDOR_DIR, planVendor, writeVendor } from "../lib/vendor.js";
 import { bool, list, str, type Args } from "../lib/args.js";
 import { bootstrap } from "./bootstrap.js";
+
+/**
+ * Append one line to `.gitignore` if it is not already covered, leaving everything else untouched.
+ *
+ * Line-edited rather than templated: a `.gitignore` is the team's file, and a repo that already
+ * ignores a broader path (`.pm-playbook/`, as this repo does) must not gain a redundant entry.
+ */
+function ensureIgnored(repoRoot: string, pattern: string, dry: boolean): "present" | "added" {
+  const path = join(repoRoot, ".gitignore");
+  const current = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const lines = current.split("\n").map((l) => l.trim());
+
+  const broader = pattern.replace(/\/[^/]*\/$/, "/");
+  if (lines.includes(pattern) || lines.includes(pattern.replace(/\/$/, "")) || lines.includes(broader)) {
+    return "present";
+  }
+
+  if (!dry) {
+    const prefix = current === "" || current.endsWith("\n") ? "" : "\n";
+    const preamble = "\n# Materialized backlog — machine-owned local state, rewritten by `pm-playbook pull`.\n";
+    writeFileSync(path, `${current}${prefix}${preamble}${pattern}\n`, "utf8");
+  }
+  return "added";
+}
 
 function copyTree(src: string, dest: string, dry: boolean, force: boolean): string[] {
   if (!existsSync(src)) return [];
@@ -81,7 +105,18 @@ export async function init(args: Args, repoRoot: string): Promise<number> {
     for (const f of written) console.log(`${tag}  + ${rel(f)}`);
   }
 
-  // 3. Agent instruction files ----------------------------------------------
+  // 3. Ignore the materialized backlog --------------------------------------
+  /*
+   * `.pm-playbook/` is COMMITTED on purpose — that is the whole vendoring argument. The backlog
+   * that `pull` writes underneath it is the opposite: machine-owned local state that changes
+   * hourly. Without this line the first `pull` drops the entire backlog into someone's next commit,
+   * stacking git conflicts on top of sync conflicts.
+   */
+  console.log("\n=== Ignore rules ===");
+  const ignoreResult = ensureIgnored(repoRoot, `${VENDOR_DIR}/${BACKLOG_DIR}/`, dry);
+  console.log(`${tag}  ${ignoreResult === "present" ? "=" : "+"} .gitignore (${ignoreResult})`);
+
+  // 4. Agent instruction files ----------------------------------------------
   console.log("\n=== Agent instructions ===");
   const explicit = list(args, "agent-files");
   const detected = bool(args, "detect") ? detectAgentFiles(repoRoot) : [];

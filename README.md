@@ -49,6 +49,7 @@ prose.
   manifest.json         ← version + per-file hashes (drift detection)
 .github/ISSUE_TEMPLATE/ ← idea · rfc · implementation-plan · epic
 AGENTS.md               ← a ~20-line pointer stanza between markers
+.gitignore              ← one line: .pm-playbook/backlog/ (see below)
 ```
 
 The stanza is a **pointer plus the invariants**, never the doctrine itself. Always-loaded context is
@@ -82,6 +83,8 @@ paragraph they half-loaded.
 | `PM101` | agent instruction files carry the stanza *(warn)* | — |
 | `PM102` | no markdown shadow backlog *(warn)* | 11 |
 | `PM103` | label migrations from a newer version have been applied *(warn)* | — |
+| `PM104` | no unresolved backlog conflict drafts *(warn)* | 11 |
+| `PM105` | only an `epic` has sub-issues | 7.1 |
 
 Every violation carries an **executable fix**, and `--json` emits the whole report — that's the
 agent-facing interface. A harness can feed violations straight back to a model:
@@ -105,6 +108,9 @@ agent-facing interface. A harness can feed violations straight back to a model:
 | `release-check vX.Y.Z` | "Can we tag?" Exit 1 if the milestone is gated or incomplete. |
 | `scope-check <pr>` | Cycle-scope gate: refuse a PR that lands next-cycle work on the integration branch. |
 | `migrate` | Apply label renames/removals after a MAJOR upgrade. Previews by default; `--yes` applies. |
+| `pull` | Materialize the backlog to `.pm-playbook/backlog/` and record the base snapshot. |
+| `push` | Send local edits back. Refuses any issue whose remote also moved. Previews; `--yes` applies. |
+| `create` | Publish drafts under `backlog/new/`. Validates offline first. Previews; `--yes` applies. |
 | `rules` | Print the rule index. |
 
 `init` deliberately does **not** touch GitHub unless you pass `--repo`: provisioning labels mutates
@@ -145,6 +151,35 @@ constant to keep updated:
 
 `scope-check` reads the pull request as well, so that job additionally needs
 `pull-requests: read`.
+
+## The local backlog mirror
+
+`pull` materializes every issue — bodies, labels, milestones, epics, sub-issues and comment threads
+— into a tree agents can read and edit without a round trip per question:
+
+```
+.pm-playbook/backlog/
+  standalone/42/body.md          epics/12/body.md
+  standalone/_/41/…  ← closed    epics/12/subissues/15/body.md
+  new/<slug>/body.md             ← drafts with no number yet; `create` publishes them
+  .sync/                         ← base snapshot, label + milestone tables
+```
+
+**This is not a shadow backlog, and the distinction is precise: a second copy is a shadow backlog
+when it can disagree with Issues *indefinitely*.** This one can't. It's gitignored rather than
+committed, `pull` overwrites it from GitHub, and `push` refuses outright the moment both sides have
+moved. A `TASKS.md` has none of those properties — nothing overwrites it and nothing refuses on its
+behalf. §11 says so explicitly, and `PM102` still fires on the real thing.
+
+**Conflicts are refused, never merged.** There is no field-level reconciliation and no local-wins
+flag. A refused edit isn't lost — the next `pull` sets it aside under `conflicts/`, restores remote
+truth to the canonical path, and `PM104` keeps reporting it until you resolve it. The comparison is
+a hash of exactly what we claim to own, comment threads included, since Gates 1 and 2 live in
+comments — so a new comment does block a stale body push, on purpose.
+
+The payoff beyond speed: **`check --no-remote` now lints the real backlog.** It used to skip every
+issue-level invariant without a network, so a sandbox or air-gapped CI job could only check doctrine
+wiring. `PM105` is only checkable at all this way, because parentage isn't in the REST issue list.
 
 ## The Claude Code plugin (optional)
 
