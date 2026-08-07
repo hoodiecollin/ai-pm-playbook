@@ -19,7 +19,7 @@ import { backlogRoot, readIndex, readTree, writeIndex, writeTree } from "../lib/
 import { planSync } from "../lib/backlog/plan.js";
 import { projectionHash } from "../lib/backlog/project.js";
 import { checkIssues } from "../lib/invariants.js";
-import { snapshot } from "../lib/backlog/lint.js";
+import { asIssue, snapshot } from "../lib/backlog/lint.js";
 import { bool, str, type Args } from "../lib/args.js";
 import type { BacklogEntity } from "../lib/backlog/model.js";
 
@@ -55,9 +55,20 @@ export async function push(args: Args, repoRoot: string): Promise<number> {
   const resulting = new Map(remote);
   for (const e of plan.push) resulting.set(e.number, e);
 
-  // Unscoped for now: the whole resulting backlog is judged. Narrowed in the next commit.
-  const { issues, parentage } = snapshot(resulting.values(), repo, "all");
-  const violations = checkIssues(issues, null, parentage).filter((v) => v.severity === "error");
+  /*
+   * Scope matches `check`: open issues, plus anything this push actually sends whatever its state.
+   *
+   * Linting every closed issue too would make one historical violation — a long-closed issue that
+   * still carries `plan-next` beside its milestone, say — permanently refuse every unrelated push
+   * in the repo. The rules describe live work. What is *being sent* is judged regardless of state,
+   * so a push still cannot introduce a new violation onto a closed issue.
+   */
+  const { parentage } = snapshot(resulting.values(), repo, "all");
+  const sending = new Set(plan.push.map((e) => e.number));
+  const inScope = [...resulting.values()].filter((e) => e.state === "OPEN" || sending.has(e.number));
+
+  const violations = checkIssues(inScope.map((e) => asIssue(e, repo)), null, parentage)
+    .filter((v) => v.severity === "error");
 
   if (json) {
     console.log(JSON.stringify({
