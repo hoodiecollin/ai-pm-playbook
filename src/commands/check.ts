@@ -17,9 +17,10 @@ import { join } from "node:path";
 
 import { DEFAULT_AGENT_FILE, detectAgentFiles, stanzaStatus } from "../lib/agent-files.js";
 import { RULES, checkIssues, type Violation } from "../lib/invariants.js";
-import { detectRepo, epicSubIssueCounts, listIssues, requireGh } from "../lib/gh.js";
+import { detectRepo, epicSubIssueCounts, fetchParentage, listIssues, listMilestones, requireGh } from "../lib/gh.js";
+import { currentCycle } from "../lib/model.js";
 import { BACKLOG_DIR, VENDOR_DIR, detectDrift } from "../lib/vendor.js";
-import { backlogRoot, listConflicts, readIndexRepo, readTree } from "../lib/backlog/store.js";
+import { MILESTONES_FILE, backlogRoot, listConflicts, readIndexRepo, readTable, readTree } from "../lib/backlog/store.js";
 import { snapshot } from "../lib/backlog/lint.js";
 import { pendingForRepo } from "./migrate.js";
 import { packageVersion } from "../lib/paths.js";
@@ -138,7 +139,11 @@ export async function check(args: Args, repoRoot: string): Promise<number> {
       // every state, so without this the two tiers lint different issue sets and disagree.
       const { issues, parentage } = snapshot(entities.values(), repo, state);
       scanned = issues.length;
-      violations.push(...checkIssues(issues, null, parentage));
+      // The milestone table `pull` writes is what makes PM013 checkable offline too. Skipping it
+      // here would recreate, one tier down, exactly the asymmetry parentage was added to remove.
+      const milestones = readTable<{ title: string; state: string }[]>(root, MILESTONES_FILE);
+      if (!milestones) notes.push("PM013 skipped: no milestone table — run `pull` to record one.");
+      violations.push(...checkIssues(issues, null, parentage, milestones ? currentCycle(milestones) : null));
       notes.push(`Linted the materialized backlog at ${VENDOR_DIR}/${BACKLOG_DIR} — run \`pull\` if it may be stale.`);
     }
   }
@@ -158,7 +163,13 @@ export async function check(args: Args, repoRoot: string): Promise<number> {
       scanned = issues.length;
       const counts = await epicSubIssueCounts(repo);
       if (counts === null) notes.push("PM007 skipped: sub-issue counts unavailable (schema or token scope).");
-      violations.push(...checkIssues(issues, counts));
+      // Structural rules need the tree, and `gh issue list` cannot return a parent — so without
+      // this fetch every one of them would pass by not running, on the very path CI uses.
+      const parentage = await fetchParentage(repo);
+      // PM013 is scoped to the focused milestone, so `check` now needs the cycle too. It is the
+      // same derivation `scope-check` uses; deriving it twice beats configuring it once.
+      const cycle = currentCycle(await listMilestones(repo));
+      violations.push(...checkIssues(issues, counts, parentage, cycle));
     } catch (err) {
       if (!json) console.error(`ERROR: ${(err as Error).message}`);
       return 2;

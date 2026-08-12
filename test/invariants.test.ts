@@ -5,10 +5,15 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { checkIssues, checkPullRequestScope, releaseBlockers } from "../src/lib/invariants.js";
+import { RULES, checkIssues, checkPullRequestScope, releaseBlockers } from "../src/lib/invariants.js";
 import { compareMilestones, currentCycle, isCoreMilestone, parseVersion } from "../src/lib/model.js";
 import type { Issue } from "../src/lib/gh.js";
 
+/**
+ * The default fixture carries `improvement` because 2.0 makes a work type mandatory (PM010). A
+ * bare-labelled issue is now itself a violation, so leaving fixtures untyped would make every test
+ * in this file assert against PM010 noise instead of the rule it names.
+ */
 let counter = 0;
 function issue(partial: Partial<Issue> = {}): Issue {
   counter += 1;
@@ -17,7 +22,7 @@ function issue(partial: Partial<Issue> = {}): Issue {
     title: `issue ${counter}`,
     state: "OPEN",
     url: `https://github.com/o/r/issues/${counter}`,
-    labels: [],
+    labels: ["improvement"],
     milestone: null,
     ...partial,
   };
@@ -39,9 +44,9 @@ const parentage = (all: Issue[], parentOf: Map<number, number>) => ({
 const rulesWithParents = (issues: Issue[], parentOf: Map<number, number>) =>
   checkIssues(issues, null, parentage(issues, parentOf)).map((v) => v.rule);
 
-describe("PM105 — only an `epic` may have sub-issues (§7.1)", () => {
+describe("PM105 — only an `epic` may have non-gate sub-issues (§7.1)", () => {
   test("flags a standalone issue that has children", () => {
-    const parent = issue({ labels: [] });
+    const parent = issue();
     const child = issue();
     expect(rulesWithParents([parent, child], new Map([[child.number, parent.number]]))).toContain("PM105");
   });
@@ -53,7 +58,7 @@ describe("PM105 — only an `epic` may have sub-issues (§7.1)", () => {
   });
 
   test("reports the parent, not the child — the parent is what is mis-modelled", () => {
-    const parent = issue({ labels: [] });
+    const parent = issue();
     const child = issue();
     const found = checkIssues([parent, child], null, parentage([parent, child], new Map([[child.number, parent.number]])));
     expect(found[0]!.issue!.number).toBe(parent.number);
@@ -63,7 +68,7 @@ describe("PM105 — only an `epic` may have sub-issues (§7.1)", () => {
   test("stays armed when the parent is outside the linted scope — a closed epic is still an epic", () => {
     // The live case that found this: forgedb #218 is OPEN under CLOSED epic #167. Resolving the
     // parent through the linted (open-only) set would report nothing at all.
-    const parent = issue({ number: 167, state: "CLOSED", labels: [] });
+    const parent = issue({ number: 167, state: "CLOSED" });
     const child = issue({ number: 218 });
     const found = checkIssues([child], null, parentage([parent, child], new Map([[218, 167]])));
     expect(found.map((v) => v.rule)).toEqual(["PM105"]);
@@ -77,7 +82,7 @@ describe("PM105 — only an `epic` may have sub-issues (§7.1)", () => {
   });
 
   test("is skipped rather than guessed when parentage is unknown", () => {
-    expect(rules([issue({ labels: [] })])).toEqual([]);
+    expect(rules([issue()])).toEqual([]);
   });
 
   test("ignores a parent that is not in the scanned set", () => {
@@ -86,24 +91,32 @@ describe("PM105 — only an `epic` may have sub-issues (§7.1)", () => {
   });
 });
 
-describe("PM001 — plan-next ⊕ milestone (§3.2)", () => {
-  test("flags the collision", () => {
-    expect(rules([issue({ labels: ["plan-next"], milestone: "v0.4.0" })])).toContain("PM001");
+describe("PM001 / PM002 are retired, and their numbers stay burned (§2)", () => {
+  test("`plan-next` with a milestone is no longer a violation — the label does not exist", () => {
+    expect(rules([issue({ labels: ["improvement", "plan-next"], milestone: "v0.4.0" })])).toEqual([]);
   });
-  test("allows plan-next with no milestone", () => {
-    expect(rules([issue({ labels: ["plan-next"] })])).toEqual([]);
-  });
-  test("allows a milestone with no plan-next", () => {
-    expect(rules([issue({ labels: ["tech-debt"], milestone: "v0.4.0" })])).toEqual([]);
+  test("no rule reuses the retired numbers", () => {
+    expect(RULES.map((r) => r.rule)).not.toContain("PM001");
+    expect(RULES.map((r) => r.rule)).not.toContain("PM002");
   });
 });
 
-describe("PM002 — idea ⊕ plan-next (§3.2)", () => {
-  test("flags the collision", () => {
-    expect(rules([issue({ labels: ["idea", "plan-next"] })])).toContain("PM002");
+describe("PM010 — exactly one work type (§3.1)", () => {
+  test("flags an untyped work item", () => {
+    expect(rules([issue({ labels: [] })])).toContain("PM010");
   });
-  test("allows either alone", () => {
-    expect(rules([issue({ labels: ["idea"] }), issue({ labels: ["plan-next"] })])).toEqual([]);
+  test("flags two types at once", () => {
+    expect(rules([issue({ labels: ["improvement", "bugfix"] })])).toContain("PM010");
+  });
+  test("an epic is a container, not a work item", () => {
+    expect(rules([issue({ labels: ["epic"] })])).toEqual([]);
+  });
+  test("a gate takes its type from its own label, not a second one", () => {
+    expect(rules([issue({ labels: ["improvement:gate-1"] })])).toEqual([]);
+  });
+  test("the fix names a concrete label to add", () => {
+    const [v] = checkIssues([issue({ labels: [] })]);
+    expect(v!.fix).toContain("--add-label improvement");
   });
 });
 
@@ -111,14 +124,8 @@ describe("PM003 — experiment never rides the spine (§4)", () => {
   test("flags a milestoned experiment", () => {
     expect(rules([issue({ labels: ["experiment"], milestone: "v0.4.0" })])).toContain("PM003");
   });
-  test("flags experiment + plan-next", () => {
-    expect(rules([issue({ labels: ["experiment", "plan-next"] })])).toContain("PM003");
-  });
-  test("flags experiment + idea", () => {
-    expect(rules([issue({ labels: ["experiment", "idea"] })])).toContain("PM003");
-  });
   test("allows an off-spine experiment", () => {
-    expect(rules([issue({ labels: ["experiment", "perf"] })])).toEqual([]);
+    expect(rules([issue({ labels: ["experiment"] })])).toEqual([]);
   });
   test("the milestone fix unschedules rather than relabels", () => {
     const [v] = checkIssues([issue({ labels: ["experiment"], milestone: "v0.4.0" })]);
@@ -126,30 +133,66 @@ describe("PM003 — experiment never rides the spine (§4)", () => {
   });
 });
 
+describe("PM014 — the hotfix shape (§5.6)", () => {
+  const hot = (over: Partial<Issue> = {}) =>
+    issue({ labels: ["bugfix", "hotfix"], milestone: "v1.2.1", ...over });
+
+  test("a well-formed hotfix is clean", () => {
+    expect(rules([hot()])).toEqual([]);
+  });
+  test("flags a hotfix with no milestone", () => {
+    expect(rules([hot({ milestone: null })])).toContain("PM014");
+  });
+  test("flags `hotfix` without `bugfix` — it is a form of bugfix, not a fourth type", () => {
+    expect(rules([issue({ labels: ["improvement", "hotfix"], milestone: "v1.2.1" })])).toContain("PM014");
+  });
+  test("flags hotfix + experiment", () => {
+    expect(rules([hot({ labels: ["bugfix", "hotfix", "experiment"] })])).toContain("PM014");
+  });
+  test("flags hotfix + epic", () => {
+    expect(rules([hot({ labels: ["bugfix", "hotfix", "epic"] })])).toContain("PM014");
+  });
+});
+
+describe("PM015 — a patch milestone holds only the hotfix (§5.6)", () => {
+  test("flags ordinary work parked on a patch milestone", () => {
+    expect(rules([issue({ labels: ["improvement"], milestone: "v1.2.1" })])).toContain("PM015");
+  });
+  test("silent for the hotfix itself", () => {
+    expect(rules([issue({ labels: ["bugfix", "hotfix"], milestone: "v1.2.1" })])).toEqual([]);
+  });
+  test("silent for the hotfix's gates, which ride the same milestone", () => {
+    expect(rules([issue({ labels: ["bugfix:gate-1"], milestone: "v1.2.1" })])).toEqual([]);
+  });
+  test("a `.0` milestone is not a patch milestone", () => {
+    expect(rules([issue({ labels: ["improvement"], milestone: "v1.2.0" })])).toEqual([]);
+  });
+});
+
 describe("PM004 / PM005 — release-gate (§3.2, §5.2)", () => {
   test("PM004 flags a gate with no milestone", () => {
-    expect(rules([issue({ labels: ["release-gate"] })])).toContain("PM004");
+    expect(rules([issue({ labels: ["improvement", "release-gate"] })])).toContain("PM004");
   });
   test("PM005 flags a speculative gate", () => {
-    expect(rules([issue({ labels: ["release-gate", "idea"], milestone: "v1.0.0" })])).toContain("PM005");
+    expect(rules([issue({ labels: ["experiment", "release-gate"], milestone: "v1.0.0" })])).toContain("PM005");
   });
   test("a correctly-formed gate is clean", () => {
-    expect(rules([issue({ labels: ["release-gate"], milestone: "v1.0.0" })])).toEqual([]);
+    expect(rules([issue({ labels: ["improvement", "release-gate"], milestone: "v1.0.0" })])).toEqual([]);
   });
 });
 
 describe("PM006 — surface exclusion (§6.1)", () => {
   test("flags a non-core surface on a core v* milestone", () => {
-    expect(rules([issue({ labels: ["surface:website"], milestone: "v0.5.0" })])).toContain("PM006");
+    expect(rules([issue({ labels: ["improvement", "surface:website"], milestone: "v0.5.0" })])).toContain("PM006");
   });
   test("allows surface:core on a core milestone", () => {
-    expect(rules([issue({ labels: ["surface:core"], milestone: "v0.5.0" })])).toEqual([]);
+    expect(rules([issue({ labels: ["improvement", "surface:core"], milestone: "v0.5.0" })])).toEqual([]);
   });
   test("allows a non-core surface on its own namespace", () => {
-    expect(rules([issue({ labels: ["surface:ide-extension"], milestone: "ext-v0.1.0" })])).toEqual([]);
+    expect(rules([issue({ labels: ["improvement", "surface:ide-extension"], milestone: "ext-v0.1.0" })])).toEqual([]);
   });
   test("allows an unscheduled non-core surface issue", () => {
-    expect(rules([issue({ labels: ["surface:website"] })])).toEqual([]);
+    expect(rules([issue({ labels: ["improvement", "surface:website"] })])).toEqual([]);
   });
 });
 
@@ -340,12 +383,14 @@ describe("clean backlog", () => {
   test("a well-formed backlog produces nothing", () => {
     expect(
       rules([
-        issue({ labels: ["idea"] }),
-        issue({ labels: ["plan-next", "tech-debt"] }),
-        issue({ labels: ["perf"], milestone: "v0.4.0" }),
+        issue({ labels: ["improvement"] }),
+        issue({ labels: ["improvement"], milestone: "v0.4.0" }),
+        issue({ labels: ["bugfix"], milestone: "v0.4.0" }),
+        issue({ labels: ["bugfix", "hotfix"], milestone: "v0.3.1" }),
         issue({ labels: ["experiment"] }),
-        issue({ labels: ["release-gate"], milestone: "v0.4.0" }),
-        issue({ labels: ["surface:website"], milestone: "web-2026-08" }),
+        issue({ labels: ["improvement:gate-2"], milestone: "v0.4.0" }),
+        issue({ labels: ["improvement", "release-gate"], milestone: "v0.4.0" }),
+        issue({ labels: ["improvement", "surface:website"], milestone: "web-2026-08" }),
       ]),
     ).toEqual([]);
   });
