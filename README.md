@@ -4,9 +4,13 @@ A portable project-management model for GitHub Issues — packaged so **your age
 linter enforces it**.
 
 ```bash
-npx @hoodiecollin/pm-playbook init          # vendor the doctrine + wire your agent instruction files
-npx @hoodiecollin/pm-playbook check         # exit 1 if the backlog violates an invariant
+npx @hoodiecollin/pm-playbook init                        # vendor the doctrine + wire your agent instruction files
+npx @hoodiecollin/pm-playbook bootstrap --repo owner/name # create the 13 labels on GitHub
+npx @hoodiecollin/pm-playbook check                       # exit 1 if the backlog violates an invariant
 ```
+
+`init` writes files; `bootstrap` is the only step that touches GitHub, and it is idempotent.
+**Already on 1.x? See [upgrading](#upgrading-from-1x) — 2.0 renames and retires labels.**
 
 Works with any agent harness that reads repo files — Claude Code, Cursor, Codex, Copilot, Gemini,
 Windsurf, or your own. No MCP server to run.
@@ -281,13 +285,60 @@ Progress is recorded as `migratedThrough` in `.pm-playbook/manifest.json`, track
 run in either order without one erasing the other's evidence of pending work. `check` reports
 anything outstanding as `PM103`.
 
+### Upgrading from 1.x
+
+2.0 replaces the maturity taxonomy with work types and gates. **Labels go 19 → 13**: `tech-debt`,
+`perf`, `config`, `legacy-audit`, `enhancement` and `documentation` fan in onto `improvement`, `bug`
+becomes `bugfix`, and `rfc`, `idea` and `plan-next` are retired along with GitHub's six stock
+labels. The renames preserve every issue assignment.
+
+```bash
+npm i -D @hoodiecollin/pm-playbook@2
+npx @hoodiecollin/pm-playbook init                          # re-vendor the doctrine
+npx @hoodiecollin/pm-playbook migrate                       # preview the label changes
+npx @hoodiecollin/pm-playbook migrate --yes                 # apply them
+npx @hoodiecollin/pm-playbook bootstrap --repo owner/name   # create the new gate labels
+npx @hoodiecollin/pm-playbook check --repo owner/name       # names everything still owed
+```
+
+**`migrate` handles the label half only, and says so when it finishes.** The structural half cannot
+be automated and `check` enumerates it for you:
+
+| Owed | Why no tool can do it | Reported as |
+|---|---|---|
+| Give every work item one type label | The merges type most of them; the rest need intent read | `PM010` |
+| Make each former `rfc` issue the gate-1 sub-issue of the item it designs | Nothing records that pairing | — |
+| Materialize gate sets for work in flight | Safe to automate, but only after the two above | `PM013` |
+
+The last step is one command once the types are assigned:
+
+```bash
+npx @hoodiecollin/pm-playbook materialize --yes
+```
+
+A migration that half-applies while reporting success is worse than one that states its scope, so
+`migrate` prints the outstanding structural work rather than exiting quietly.
+
 ## Programmatic use
 
 ```ts
-import { checkIssues, listIssues, RULES } from "@hoodiecollin/pm-playbook";
+import {
+  checkIssues, currentCycle, epicSubIssueCounts, fetchParentage, listIssues, listMilestones,
+} from "@hoodiecollin/pm-playbook";
 
-const violations = checkIssues(await listIssues("owner/name"));
+const repo = "owner/name";
+const violations = checkIssues(
+  await listIssues(repo),
+  await epicSubIssueCounts(repo),
+  await fetchParentage(repo),
+  currentCycle(await listMilestones(repo)),
+);
 ```
+
+**The last three arguments are optional, and omitting one silently skips the rules that need it** —
+`checkIssues(issues)` alone runs the label rules and no structural ones, reporting a clean backlog
+it never actually examined. `fetchParentage` is the important one: `gh issue list` cannot return an
+issue's parent, so without it every gate and hierarchy rule is inert.
 
 ## Developing
 
