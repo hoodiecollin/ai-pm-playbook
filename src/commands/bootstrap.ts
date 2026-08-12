@@ -11,7 +11,7 @@
  *   gh auth refresh -s project,read:project
  */
 
-import { MATURITY_LABELS, VIEWS, surfaceLabel } from "../lib/model.js";
+import { CORE_LABELS, MAX_LABEL_DESCRIPTION, VIEWS, surfaceLabel } from "../lib/model.js";
 import { ownerType, requireGh } from "../lib/gh.js";
 import { run, tryRun } from "../lib/sh.js";
 import { bool, list, str, type Args } from "../lib/args.js";
@@ -36,10 +36,25 @@ export async function bootstrap(args: Args, repoArg?: string): Promise<number> {
   // --- Labels --------------------------------------------------------------
   console.log("\n=== Labels ===");
   const surfaces = list(args, "surfaces") ?? [];
-  const labels = [...MATURITY_LABELS, ...surfaces.map(surfaceLabel)];
+  const labels = [...CORE_LABELS, ...surfaces.map(surfaceLabel)];
+
+  /*
+   * A label that fails to write leaves the repo half-provisioned, and every downstream check reads
+   * a missing label as "nothing is labelled that way" rather than "the label was never created".
+   * So failures are counted and returned as a non-zero exit rather than warned past — §5.5: a
+   * report is not a gate, and CI only notices what changes the exit code.
+   */
+  let failed = 0;
 
   for (const l of labels) {
     console.log(`${tag}label ${l.name.padEnd(18)} #${l.color}  ${l.description}`);
+    // Caught here rather than at the API, because GitHub rejects an over-long description with an
+    // opaque 422 and the name of the offending field is the only useful part of the message.
+    if (l.description.length > MAX_LABEL_DESCRIPTION) {
+      console.error(`  ⚠️  ${l.name}: description is ${l.description.length} chars; GitHub's limit is ${MAX_LABEL_DESCRIPTION}.`);
+      failed += 1;
+      continue;
+    }
     if (dry) continue;
     // --force updates an existing label in place → idempotent.
     const res = await tryRun("gh", [
@@ -51,6 +66,7 @@ export async function bootstrap(args: Args, repoArg?: string): Promise<number> {
     ]);
     if (!res.ok) {
       console.error(`  ⚠️  failed to write label ${l.name}: ${res.stderr.trim()}`);
+      failed += 1;
     }
   }
 
@@ -144,5 +160,10 @@ export async function bootstrap(args: Args, repoArg?: string): Promise<number> {
   console.log("  • Enforce the label invariants — `pm-playbook check --repo " + repo + "`.");
   console.log("  • gh gotcha: `gh issue edit --milestone` only resolves OPEN milestones. For a");
   console.log("    closed one, PATCH by number: gh api -X PATCH repos/O/R/issues/N -F milestone=<num>");
+
+  if (failed) {
+    console.error(`\n\u2717 ${failed} label(s) could not be written \u2014 this repo is only partly provisioned.`);
+    return 1;
+  }
   return 0;
 }

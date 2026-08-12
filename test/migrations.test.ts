@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  compareSemver, pendingMigrations, planMigrations, type Migration,
+  MIGRATIONS, compareSemver, pendingMigrations, planMigrations, type Migration,
 } from "../src/lib/migrations.js";
 
 const FIXTURES: Migration[] = [
@@ -113,5 +113,68 @@ describe("the shipped migration log", () => {
     const { MIGRATIONS } = await import("../src/lib/migrations.js");
     const versions = MIGRATIONS.map((m) => m.version);
     expect([...versions].sort(compareSemver)).toEqual(versions);
+  });
+});
+
+describe("the 2.0.0 entry — the first real migration", () => {
+  const m = MIGRATIONS.filter((x) => x.version === "2.0.0");
+
+  test("a lone descriptor is an in-place rename, so every assignment survives", () => {
+    const actions = planMigrations(m, ["tech-debt"], [{ number: 1, labels: ["tech-debt"] }]);
+    const rename = actions.find((a) => a.from === "tech-debt")!;
+    expect(rename.kind).toBe("rename");
+    expect(rename.to).toBe("improvement");
+  });
+
+  test("the many-to-one fan-in is rename-then-merge, never a silent drop", () => {
+    const actions = planMigrations(
+      m,
+      ["tech-debt", "perf", "config", "legacy-audit"],
+      [
+        { number: 1, labels: ["tech-debt"] },
+        { number: 2, labels: ["perf"] },
+        { number: 3, labels: ["config"] },
+      ],
+    );
+    const kinds = ["tech-debt", "perf", "config", "legacy-audit"].map(
+      (n) => actions.find((a) => a.from === n)!.kind,
+    );
+    // The first creates `improvement`; every one after it finds both labels present.
+    expect(kinds).toEqual(["rename", "merge", "merge", "merge"]);
+    // And the merges name their carriers, so `migrate` can relabel each before deleting the source.
+    expect(actions.find((a) => a.from === "perf")!.affected).toEqual([2]);
+  });
+
+  test("`bug` merges onto `bugfix` when both already exist", () => {
+    const actions = planMigrations(m, ["bug", "bugfix"], [{ number: 9, labels: ["bug"] }]);
+    const a = actions.find((x) => x.from === "bug")!;
+    expect(a.kind).toBe("merge");
+    expect(a.affected).toEqual([9]);
+  });
+
+  test("the derived-state labels are removals, and each says why", () => {
+    const actions = planMigrations(m, ["rfc", "idea", "plan-next"], []);
+    for (const name of ["rfc", "idea", "plan-next"]) {
+      const a = actions.find((x) => x.from === name)!;
+      expect(a.kind).toBe("remove");
+      expect(a.reason.length).toBeGreaterThan(20);
+    }
+  });
+
+  test("a second run is entirely skips — the plan is idempotent", () => {
+    const after = ["improvement", "bugfix", "experiment", "epic", "release-gate"];
+    expect(planMigrations(m, after, []).every((a) => a.kind === "skip")).toBe(true);
+  });
+
+  test("`experiment` is never touched — same name, same meaning, both sides of 2.0", () => {
+    const all = m.flatMap((x) => [...x.renames.map((r) => r.from), ...x.removals.map((r) => r.name)]);
+    expect(all).not.toContain("experiment");
+    expect(all).not.toContain("epic");
+    expect(all).not.toContain("release-gate");
+  });
+
+  test("sixteen labels retire: seven merges and nine removals", () => {
+    expect(m[0]!.renames).toHaveLength(7);
+    expect(m[0]!.removals).toHaveLength(9);
   });
 });

@@ -8,7 +8,10 @@
  * because their existing issues may now be violations).
  */
 
-import { CORE_SURFACE, SURFACE_PREFIX, compareMilestones, isCoreMilestone } from "./model.js";
+import {
+  CORE_SURFACE, GATES, SURFACE_PREFIX, WORK_TYPES,
+  compareMilestones, gateOf, isCoreMilestone, isPatchMilestone, workTypeOf,
+} from "./model.js";
 import type { Issue, PullRequestScope } from "./gh.js";
 
 export type Severity = "error" | "warn";
@@ -34,22 +37,35 @@ export interface RuleMeta {
 }
 
 /** Machine-readable rule index — printed by `pm-playbook rules`, consumed by agents. */
+/**
+ * PM001 and PM002 are RETIRED, not renumbered and never reused.
+ *
+ * They policed `plan-next` and `idea`, which 2.0 deletes as labels — the ladder is derived from
+ * gate state instead (§2), so the drift they detected is no longer representable. A consumer's CI
+ * config or agent prompt that still names PM001 must stop matching rather than silently match some
+ * unrelated rule, which is why the numbers stay burned.
+ */
 export const RULES: RuleMeta[] = [
-  { rule: "PM001", section: "§3.2", severity: "error", summary: "`plan-next` and a milestone must never coexist." },
-  { rule: "PM002", section: "§3.2", severity: "error", summary: "`idea` and `plan-next` must never coexist." },
-  { rule: "PM003", section: "§3.2/§4", severity: "error", summary: "`experiment` never carries `idea`, `plan-next`, or a milestone." },
+  { rule: "PM003", section: "§4", severity: "error", summary: "`experiment` never carries a milestone." },
   { rule: "PM004", section: "§3.2", severity: "error", summary: "`release-gate` requires a milestone." },
-  { rule: "PM005", section: "§3.2", severity: "error", summary: "`release-gate` never carries `idea`, `plan-next`, or `experiment`." },
+  { rule: "PM005", section: "§3.2", severity: "error", summary: "`release-gate` never carries `experiment`." },
   { rule: "PM006", section: "§6.1", severity: "error", summary: "A non-core `surface:*` issue never rides a core `v*` milestone." },
   { rule: "PM007", section: "§7.1", severity: "warn", summary: "An `epic` should decompose via native sub-issues." },
   { rule: "PM008", section: "§5.3", severity: "error", summary: "A PR to the integration branch must not close work milestoned past the cycle in flight." },
   { rule: "PM009", section: "§5.3", severity: "warn", summary: "A PR references next-cycle work it does not close (advisory)." },
+  { rule: "PM010", section: "§3.1", severity: "error", summary: "A work item carries exactly one type label." },
+  { rule: "PM011", section: "§9", severity: "error", summary: "A gate's milestone equals its parent's." },
+  { rule: "PM012", section: "§7.1", severity: "error", summary: "An `epic` never carries gates." },
+  { rule: "PM013", section: "§9", severity: "error", summary: "A work item on the focused milestone carries its complete gate set." },
+  { rule: "PM014", section: "§5.6", severity: "error", summary: "`hotfix` requires `bugfix` and a milestone, and never carries `experiment` or `epic`." },
+  { rule: "PM015", section: "§5.6", severity: "error", summary: "A patch milestone holds one hotfix work item and its gates, nothing else." },
+  { rule: "PM016", section: "§9", severity: "warn", summary: "Every gate is closed but the work item is still open." },
   { rule: "PM100", section: "—", severity: "warn", summary: "Vendored `.pm-playbook/` differs from the installed package." },
   { rule: "PM101", section: "—", severity: "warn", summary: "Agent instruction file is missing the pm-playbook stanza." },
   { rule: "PM102", section: "§11", severity: "warn", summary: "A markdown shadow backlog exists; the backlog lives in Issues." },
   { rule: "PM103", section: "—", severity: "warn", summary: "Label migrations from a newer doctrine version have not been applied." },
   { rule: "PM104", section: "§11", severity: "warn", summary: "Unresolved backlog conflict drafts are waiting for a decision." },
-  { rule: "PM105", section: "§7.1", severity: "error", summary: "Only an `epic` may have sub-issues." },
+  { rule: "PM105", section: "§7.1", severity: "error", summary: "Only an `epic` may have non-gate sub-issues, and only a work item may have gates." },
 ];
 
 function ref(i: Issue) {
@@ -76,72 +92,200 @@ export interface Parentage {
 }
 
 /**
+ * The structural rules — everything that reads the tree rather than one issue's labels.
+ *
+ * All of these run over `parentage.all`, **never** over the linted issue set, and the reason is the
+ * same one `Parentage` documents for PM105: the linted set is scoped by state, and a closed gate is
+ * still a gate. Scoping here would mean a work item whose gate 1 is closed reads as though gate 1
+ * were never created — which is precisely the state PM013 exists to catch, reported backwards.
+ */
+function checkStructure(parentage: Parentage, cycle: string | null): Violation[] {
+  const out: Violation[] = [];
+
+  const childrenOf = new Map<number, number[]>();
+  for (const [child, parent] of parentage.parentOf) {
+    childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), child]);
+  }
+  const isGate = (n: number) => gateOf(parentage.all.get(n)?.labels ?? []) !== null;
+
+  // --- PM105 / PM012 — what may hold what ----------------------------------------------------
+  for (const [parent, children] of [...childrenOf].sort((a, b) => a[0] - b[0])) {
+    const issue = parentage.all.get(parent);
+    if (!issue) continue;
+    const epic = issue.labels.includes("epic");
+    const gates = children.filter(isGate);
+    const plain = children.filter((c) => !isGate(c));
+
+    // PM012 — an epic spans releases while its children ship incrementally, so an epic-level gate
+    // would be approving a design for work that has not been decomposed yet.
+    if (epic && gates.length) {
+      out.push({
+        rule: "PM012", severity: "error", section: "§7.1", issue: ref(issue),
+        message: `#${parent} is an \`epic\` and carries ${gates.length} gate(s): ${gates.map((g) => `#${g}`).join(", ")}. An epic groups work; it never gates it.`,
+        fix: `Move the gate(s) onto the work item they actually design, or drop the epic label if this is really one work item: gh issue edit ${parent} --remove-label epic`,
+      });
+    }
+
+    // PM105 — non-gate children require an epic parent. Checked from the parent's side: a child
+    // naming a non-epic parent means the *parent* is mis-modelled, so that is where the fix belongs.
+    if (plain.length && !epic) {
+      out.push({
+        rule: "PM105", severity: "error", section: "§7.1", issue: ref(issue),
+        message: `#${parent} has ${plain.length} non-gate sub-issue(s) but is not labelled \`epic\`. Only an epic decomposes into work; a work item decomposes into gates.`,
+        fix: `Either label it: gh issue edit ${parent} --add-label epic — or detach the children: ${plain.map((c) => `#${c}`).join(", ")}`,
+      });
+    }
+
+    // PM105 — a gate's parent must be a work item. This is what caps the tree at three levels: a
+    // gate on a gate has nowhere to sit, and nothing downstream could render or lint it.
+    if (gates.length && !epic && workTypeOf(issue.labels) === null) {
+      const why = gateOf(issue.labels) ? "is itself a gate" : "carries no work type";
+      out.push({
+        rule: "PM105", severity: "error", section: "§7.1", issue: ref(issue),
+        message: `#${parent} holds gate(s) ${gates.map((g) => `#${g}`).join(", ")} but ${why}. Only a work item takes gates, which is what keeps the tree three levels deep.`,
+        fix: `Give it a type: gh issue edit ${parent} --add-label improvement    # or bugfix / experiment`,
+      });
+    }
+  }
+
+  // --- PM011 / PM013 / PM016 — per work item ------------------------------------------------
+  for (const [number, issue] of [...parentage.all].sort((a, b) => a[0] - b[0])) {
+    const gate = gateOf(issue.labels);
+
+    // PM011 — a gate carries its parent's milestone (§9). Without this, moving a parent strands its
+    // gates on the old milestone, and every milestone-scoped query silently under-reports.
+    if (gate) {
+      const parentNumber = parentage.parentOf.get(number);
+      const parent = parentNumber === undefined ? null : parentage.all.get(parentNumber);
+      if (parent && parent.milestone !== issue.milestone) {
+        out.push({
+          rule: "PM011", severity: "error", section: "§9", issue: ref(issue),
+          message: `Gate #${number} is milestoned \`${issue.milestone ?? "none"}\` but its parent #${parent.number} is on \`${parent.milestone ?? "none"}\`. A gate rides its parent's milestone or it is invisible to every query that matters.`,
+          fix: parent.milestone
+            ? `gh issue edit ${number} --milestone ${parent.milestone}`
+            : `gh issue edit ${number} --remove-milestone`,
+        });
+      }
+      continue;
+    }
+
+    const type = workTypeOf(issue.labels);
+    if (!type || issue.labels.includes("epic")) continue;
+
+    const children = childrenOf.get(number) ?? [];
+    const present = new Map<number, Issue>();
+    for (const c of children) {
+      const g = gateOf(parentage.all.get(c)?.labels ?? []);
+      if (g) present.set(g.n, parentage.all.get(c)!);
+    }
+
+    // PM013 — the completeness rule that makes "gate absent" unambiguous (§9). It fires only on the
+    // FOCUSED milestone, because that is the trigger materialization uses: work scheduled three
+    // releases out is correctly gateless, and flagging it would train people to ignore the rule.
+    if (cycle && issue.milestone === cycle && issue.state.toUpperCase() === "OPEN") {
+      const missing = GATES[type].filter((g) => !present.has(g.n)).map((g) => g.n);
+      if (missing.length) {
+        out.push({
+          rule: "PM013", severity: "error", section: "§9", issue: ref(issue),
+          message: `#${number} is on the cycle in flight (\`${cycle}\`) but is missing gate(s) ${missing.join(", ")} of ${GATES[type].length}. An absent gate has to mean "not materialized yet" or "nobody wrote it" — never both.`,
+          fix: `npx @hoodiecollin/pm-playbook materialize --milestone ${cycle}`,
+        });
+      }
+    }
+
+    // PM016 — every gate closed and the work item still open (§9). A warn: one PR closes the last
+    // gate and the parent, and GitHub does not do it atomically, so an error would fire on correct
+    // behavior mid-merge. What it catches is the case that outlives the merge — finished work that
+    // sits on a milestone forever, blocking `release-check` and reading as in flight.
+    if (
+      issue.state.toUpperCase() === "OPEN" &&
+      GATES[type].length === present.size &&
+      GATES[type].every((g) => present.get(g.n)?.state.toUpperCase() === "CLOSED")
+    ) {
+      out.push({
+        rule: "PM016", severity: "warn", section: "§9", issue: ref(issue),
+        message: `#${number} has every gate closed but is still open. Closing the last gate is what finishes the work — if it is really done, the milestone is waiting on nothing but this.`,
+        fix: `gh issue close ${number}    # or reopen the gate that is not actually finished`,
+      });
+    }
+  }
+
+  return out;
+}
+
+/**
  * Evaluate every issue-level invariant. Pure — takes data, returns findings.
  *
  * `parentage` is optional because it is only knowable from a materialized backlog or a GraphQL
- * fetch; without it, PM105 is skipped rather than guessed.
+ * fetch; without it every structural rule is skipped rather than guessed. `cycle` is optional for
+ * the same reason — PM013 has no referent without one.
  */
 export function checkIssues(
   issues: Issue[],
   subIssueCounts?: Map<number, number> | null,
   parentage?: Parentage | null,
+  cycle?: string | null,
 ): Violation[] {
   const out: Violation[] = [];
 
-  // PM105 — only an `epic` may have sub-issues (§7.1). Checked from the parent's side: a child
-  // naming a non-epic parent means the *parent* is mis-modelled, so that is where the fix belongs.
-  if (parentage) {
-    const childrenOf = new Map<number, number[]>();
-    for (const [child, parent] of parentage.parentOf) {
-      childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), child]);
-    }
-    for (const [parent, children] of [...childrenOf].sort((a, b) => a[0] - b[0])) {
-      const issue = parentage.all.get(parent);
-      if (!issue || issue.labels.includes("epic")) continue;
-      out.push({
-        rule: "PM105", severity: "error", section: "§7.1", issue: ref(issue),
-        message: `#${parent} has ${children.length} sub-issue(s) but is not labelled \`epic\`. Only an epic decomposes.`,
-        fix: `Either label it: gh issue edit ${parent} --add-label epic — or detach the children: ${children
-          .map((c) => `#${c}`)
-          .join(", ")}`,
-      });
-    }
-  }
+  if (parentage) out.push(...checkStructure(parentage, cycle ?? null));
 
   for (const i of issues) {
     const has = (l: string) => i.labels.includes(l);
     const scheduled = i.milestone !== null;
+    const isGate = gateOf(i.labels) !== null;
 
-    // PM001 — plan-next ⊕ milestone. The #1 drift smell (§12.7).
-    if (has("plan-next") && scheduled) {
-      out.push({
-        rule: "PM001", severity: "error", section: "§3.2", issue: ref(i),
-        message: `\`plan-next\` coexists with milestone \`${i.milestone}\`. Committed-but-unscheduled and scheduled are exclusive states.`,
-        fix: `Assigning a milestone IS scheduling. Drop the label: gh issue edit ${i.number} --remove-label plan-next`,
-      });
-    }
-
-    // PM002 — idea ⊕ plan-next. Speculative and committed are opposites.
-    if (has("idea") && has("plan-next")) {
-      out.push({
-        rule: "PM002", severity: "error", section: "§3.2", issue: ref(i),
-        message: "`idea` coexists with `plan-next`. Speculative and committed are opposite rungs of the ladder.",
-        fix: `Pick one. If an RFC was accepted (Gate 1), it is committed: gh issue edit ${i.number} --remove-label idea`,
-      });
-    }
-
-    // PM003 — experiment ⊕ {idea, plan-next, milestone}. Experiments never ride the spine (§4).
-    if (has("experiment")) {
-      const conflicts = ["idea", "plan-next"].filter(has);
-      if (scheduled) conflicts.push(`milestone \`${i.milestone}\``);
-      if (conflicts.length) {
+    // PM010 — exactly one type label (§3.1). Epics are containers, not work; gates inherit their
+    // parent's type through their own label, so neither is a work item for this purpose.
+    if (!isGate && !has("epic")) {
+      const found = WORK_TYPES.filter(has);
+      if (found.length !== 1) {
         out.push({
-          rule: "PM003", severity: "error", section: "§3.2/§4", issue: ref(i),
-          message: `\`experiment\` coexists with ${conflicts.join(", ")}. A spike's deliverable is a decision, not a shippable artifact — it feeds the spine, it never rides it.`,
+          rule: "PM010", severity: "error", section: "§3.1", issue: ref(i),
+          message:
+            found.length === 0
+              ? "No work type. Every work item is exactly one of `improvement`, `bugfix` or `experiment` — the type decides which gates it takes."
+              : `Carries ${found.length} work types (${found.join(", ")}). A work item is exactly one kind of work.`,
           fix:
-            scheduled
-              ? `Unschedule the spike, then file the feature its conclusion commits as a separate issue and milestone THAT: gh issue edit ${i.number} --remove-milestone`
-              : `Drop the conflicting label(s): gh issue edit ${i.number} --remove-label ${conflicts.join(",")}`,
+            found.length === 0
+              ? `gh issue edit ${i.number} --add-label improvement    # or bugfix / experiment`
+              : `Keep one: gh issue edit ${i.number} --remove-label ${found.slice(1).join(",")}`,
+        });
+      }
+    }
+
+    // PM003 — experiment ⊕ milestone. An experiment feeds the spine; it never rides it (§4).
+    if (has("experiment") && scheduled) {
+      out.push({
+        rule: "PM003", severity: "error", section: "§4", issue: ref(i),
+        message: `\`experiment\` is milestoned \`${i.milestone}\`. A spike's deliverable is a finding, not a shippable artifact — it feeds the spine, it never rides it.`,
+        fix: `Unschedule the spike, then file the work its verdict commits as its own issue and milestone THAT: gh issue edit ${i.number} --remove-milestone`,
+      });
+    }
+
+    // PM014 — the hotfix warrant's structural half (§5.6). The eligibility tests are human
+    // judgement and live in the gate-1 body; what a machine can check is the shape.
+    if (has("hotfix")) {
+      if (!has("bugfix")) {
+        out.push({
+          rule: "PM014", severity: "error", section: "§5.6", issue: ref(i),
+          message: "`hotfix` without `bugfix`. A hotfix is a *form* of bugfix — the urgency changes the milestone and the branch, not the kind of work or the gates.",
+          fix: `gh issue edit ${i.number} --add-label bugfix`,
+        });
+      }
+      if (!scheduled) {
+        out.push({
+          rule: "PM014", severity: "error", section: "§5.6", issue: ref(i),
+          message: "`hotfix` has no milestone. A hotfix ships on its own patch milestone, opened when the warrant is accepted — an unmilestoned hotfix is just a bug.",
+          fix: `Open the patch milestone and assign it: gh issue edit ${i.number} --milestone <vX.Y.Z>`,
+        });
+      }
+      const forbidden = ["experiment", "epic"].filter(has);
+      if (forbidden.length) {
+        out.push({
+          rule: "PM014", severity: "error", section: "§5.6", issue: ref(i),
+          message: `\`hotfix\` coexists with ${forbidden.join(", ")}. A hotfix is bounded, released-behavior work — it is neither a spike nor a container.`,
+          fix: `gh issue edit ${i.number} --remove-label ${forbidden.join(",")}`,
         });
       }
     }
@@ -155,16 +299,14 @@ export function checkIssues(
       });
     }
 
-    // PM005 — release-gate ⊕ {idea, plan-next, experiment}. A gate is committed by definition.
-    if (has("release-gate")) {
-      const conflicts = ["idea", "plan-next", "experiment"].filter(has);
-      if (conflicts.length) {
-        out.push({
-          rule: "PM005", severity: "error", section: "§3.2", issue: ref(i),
-          message: `\`release-gate\` coexists with ${conflicts.join(", ")}. A release obligation is committed by definition — it can never be speculative or unscheduled.`,
-          fix: `gh issue edit ${i.number} --remove-label ${conflicts.join(",")}`,
-        });
-      }
+    // PM005 — release-gate ⊕ experiment. A release obligation is committed by definition; a spike
+    // is the one kind of work that can never be one.
+    if (has("release-gate") && has("experiment")) {
+      out.push({
+        rule: "PM005", severity: "error", section: "§3.2", issue: ref(i),
+        message: "`release-gate` coexists with `experiment`. A release obligation blocks a tag — it is committed by definition, and a spike never is.",
+        fix: `gh issue edit ${i.number} --remove-label experiment`,
+      });
     }
 
     // PM006 — non-core surface ⊕ core v* milestone. Reads "done, awaiting vX" while already shipped.
@@ -174,6 +316,17 @@ export function checkIssues(
         rule: "PM006", severity: "error", section: "§6.1", issue: ref(i),
         message: `${nonCore.join(", ")} is milestoned onto core \`${i.milestone}\`. It would read as "done — awaiting ${i.milestone}" even though it ships on its own line, and it would never reach the core changelog.`,
         fix: `Move it to that surface's own milestone namespace (e.g. \`ext-v0.1.0\`), or unschedule it: gh issue edit ${i.number} --remove-milestone`,
+      });
+    }
+
+    // PM015 — a patch milestone holds one hotfix and its gates, nothing else (§5.6). A patch that
+    // accumulates "while we're in there" work has lost the boundedness that made it cheap, and a
+    // patch release nobody designed becomes a minor release nobody reviewed.
+    if (scheduled && isPatchMilestone(i.milestone!) && !isGate && !has("hotfix")) {
+      out.push({
+        rule: "PM015", severity: "error", section: "§5.6", issue: ref(i),
+        message: `#${i.number} is on patch milestone \`${i.milestone}\` but is not a \`hotfix\`. A patch milestone exists to ship one bounded, warranted fix.`,
+        fix: `Move it to the cycle in flight, or label it \`hotfix\` if it genuinely meets the §5.6 eligibility tests: gh issue edit ${i.number} --milestone <vX.Y.0>`,
       });
     }
 

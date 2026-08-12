@@ -30,7 +30,9 @@ const SECTION_FILES: Record<number, string> = {
   6: "06-surfaces.md",
   7: "07-epics-and-roadmap.md",
   8: "08-board-is-a-view.md",
-  9: "09-design-plan-spec.md",
+  // Renamed in 2.0.0: the old name spelled out `improvement`'s gate verbs, which are wrong for
+  // two of the three work types. A MAJOR is the one release where a breaking rename is free.
+  9: "09-gates.md",
   10: "10-documentation.md",
   11: "11-operating-disciplines.md",
   12: "12-adopting.md",

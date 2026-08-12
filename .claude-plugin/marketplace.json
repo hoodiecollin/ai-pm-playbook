@@ -12,7 +12,7 @@
       "displayName": "PM Playbook",
       "source": "./plugins/pm-playbook",
       "description": "Two-axis issue tracking with enforced invariants: a doctrine skill, ladder-aware commands, and a PreToolUse hook that blocks invariant-violating `gh issue` calls before they run.",
-      "version": "1.2.0",
+      "version": "2.0.0",
       "author": {
         "name": "Collin Kokotas"
       },

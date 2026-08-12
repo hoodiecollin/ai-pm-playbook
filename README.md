@@ -47,7 +47,7 @@ prose.
   PLAYBOOK.md           ← the full doctrine
   reference/            ← 13 sections, loaded on demand
   manifest.json         ← version + per-file hashes (drift detection)
-.github/ISSUE_TEMPLATE/ ← idea · rfc · implementation-plan · epic
+.github/ISSUE_TEMPLATE/ ← improvement · bugfix · experiment · epic · release-gate
 AGENTS.md               ← a ~20-line pointer stanza between markers
 .gitignore              ← one line: .pm-playbook/backlog/ (see below)
 ```
@@ -70,31 +70,40 @@ paragraph they half-loaded.
 
 | Rule | Invariant | §
 |---|---|---|
-| `PM001` | `plan-next` ⊕ milestone | 3.2 |
-| `PM002` | `idea` ⊕ `plan-next` | 3.2 |
-| `PM003` | `experiment` ⊕ {`idea`, `plan-next`, milestone} | 3.2 / 4 |
+| `PM003` | `experiment` ⊕ milestone | 4 |
 | `PM004` | `release-gate` ⇒ milestone | 3.2 |
-| `PM005` | `release-gate` ⊕ {`idea`, `plan-next`, `experiment`} | 3.2 |
+| `PM005` | `release-gate` ⊕ `experiment` | 3.2 |
 | `PM006` | non-core `surface:*` ⊕ core `v*` milestone | 6.1 |
 | `PM007` | an `epic` decomposes via native sub-issues *(warn)* | 7.1 |
 | `PM008` | a PR to the integration branch never closes work milestoned past the cycle in flight | 5.3 |
 | `PM009` | a PR references next-cycle work it doesn't close *(warn)* | 5.3 |
+| `PM010` | exactly one type label per work item | 3.1 |
+| `PM011` | a gate's milestone equals its parent's | 9 |
+| `PM012` | an `epic` never carries gates | 7.1 |
+| `PM013` | a work item on the focused milestone carries its complete gate set | 9 |
+| `PM014` | `hotfix` ⇒ `bugfix` + milestone, and ⊕ {`experiment`, `epic`} | 5.6 |
+| `PM015` | a patch milestone holds one hotfix and its gates, nothing else | 5.6 |
+| `PM016` | every gate closed but the work item still open *(warn)* | 9 |
 | `PM100` | vendored doctrine matches the installed package *(warn)* | — |
 | `PM101` | agent instruction files carry the stanza *(warn)* | — |
 | `PM102` | no markdown shadow backlog *(warn)* | 11 |
 | `PM103` | label migrations from a newer version have been applied *(warn)* | — |
 | `PM104` | no unresolved backlog conflict drafts *(warn)* | 11 |
-| `PM105` | only an `epic` has sub-issues | 7.1 |
+| `PM105` | only an `epic` has non-gate sub-issues; only a work item has gates | 7.1 |
+
+`PM001` and `PM002` were retired in 2.0 along with the `plan-next` and `idea` labels. **Their
+numbers are burned, never reused** — a CI config or agent prompt that still names `PM001` should
+stop matching rather than silently match a different rule.
 
 Every violation carries an **executable fix**, and `--json` emits the whole report — that's the
 agent-facing interface. A harness can feed violations straight back to a model:
 
 ```jsonc
 {
-  "rule": "PM001",
+  "rule": "PM013",
   "severity": "error",
-  "message": "`plan-next` coexists with milestone `v0.4.0`. …",
-  "fix": "Assigning a milestone IS scheduling. Drop the label: gh issue edit 42 --remove-label plan-next"
+  "message": "#42 is on the cycle in flight (`v2.1.0`) but is missing gate(s) 2, 3 of 3. …",
+  "fix": "npx @hoodiecollin/pm-playbook materialize --milestone v2.1.0"
 }
 ```
 
@@ -105,6 +114,8 @@ agent-facing interface. A harness can feed violations straight back to a model:
 | `init` | Vendor the doctrine, copy issue templates, wire agent files. **Local and offline** unless `--repo` is passed. |
 | `bootstrap --repo o/n --project N` | Provision labels, a starter milestone, and the filtered Project views. Idempotent. |
 | `check` | Lint the backlog. `--no-remote` for local-only, `--json` for agents, `--strict` to fail on warnings. |
+| `materialize` | Create a milestone's gate sub-issues, as complete sets. Idempotent and resumable. Previews; `--yes` applies. |
+| `ladder` | Where every work item sits on the commitment ladder — derived from gate state, so no filter can answer it. |
 | `release-check vX.Y.Z` | "Can we tag?" Exit 1 if the milestone is gated or incomplete. |
 | `scope-check <pr>` | Cycle-scope gate: refuse a PR that lands next-cycle work on the integration branch. |
 | `migrate` | Apply label renames/removals after a MAJOR upgrade. Previews by default; `--yes` applies. |
@@ -206,17 +217,17 @@ the loop.
 | **Skill** `pm-playbook` | The always-true core, loaded on demand. Defers to `.pm-playbook/` when the repo has it, since that copy is version-pinned to what the project actually adopted. |
 | `/pm-playbook:check` | Runs the linter and *fixes* what it finds, rather than reporting it back. |
 | `/pm-playbook:promote` | Moves an issue up the ladder as one atomic edit, so a promotion can't half-apply. |
-| `/pm-playbook:rfc` | Files a Gate 1 design-doc, grounded in the code, after a dedup check. |
+| `/pm-playbook:gate` | Writes the next open gate's artifact, grounded in the code, after a dedup check. |
 | `/pm-playbook:release` | "Can we tag?", separating *gated* from *incomplete*. |
-| **Hook** (`PreToolUse`) | Blocks `gh issue create/edit` that would violate `PM001`–`PM005` — before the issue exists. |
+| **Hook** (`PreToolUse`) | Blocks `gh issue create/edit` that would violate a label invariant — before the issue exists. |
 
 The hook sees only the command text, never the repo. That is deliberate: it catches what is
-self-evident in the command (`--label plan-next --milestone v0.4.0`) instantly and offline, and
+self-evident in the command (`--label improvement --label bugfix`) instantly and offline, and
 leaves state-dependent violations to `check`. A fast partial gate beats a complete one that makes
 every Bash call wait on the network. It fails open on anything it cannot parse — a hook that breaks
 your session is worse than no hook.
 
-It also never blocks the *fix*: `--remove-label plan-next --milestone v0.4.0` passes, because the
+It also never blocks the *fix*: `--remove-label bugfix` passes, because the
 guard reads only additive flags. There's a regression test pinning exactly that.
 
 ## The model, in one paragraph

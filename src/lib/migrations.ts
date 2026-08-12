@@ -35,10 +35,48 @@ export interface Migration {
  * The migration log. Append-only: once a release ships, its entry is history and must never be
  * edited, because consumers upgrading from an older version still have to replay it.
  *
- * Empty at the initial release — the taxonomy has not changed yet. The machinery ships now so
- * that the first rename is a data change rather than an emergency.
+ * **The label half of 2.0 migrates cleanly; the structural half cannot be automated at all.**
+ * Nothing here can convert an `rfc` issue into the gate-1 sub-issue of the work item it designs,
+ * read intent well enough to assign a work type, or materialize gate sets for work already in
+ * flight. `migrate` says so on completion rather than implying the upgrade is finished, because a
+ * migration that silently half-applies is worse than one that admits its scope.
  */
-export const MIGRATIONS: Migration[] = [];
+export const MIGRATIONS: Migration[] = [
+  {
+    version: "2.0.0",
+    summary: "Work types replace the maturity taxonomy; gates become sub-issues; the ladder is derived.",
+    /*
+     * Most of these are RENAMES rather than removals, which is what preserves assignments. The
+     * many-to-one fan-in onto `improvement` works because `planMigrations` updates its label set as
+     * it goes: the first descriptor becomes an in-place rename, and every one after it becomes a
+     * merge — relabel each carrier, then delete the source. Both keep the issues.
+     *
+     * Order matters for exactly that reason, and it is the order below.
+     */
+    renames: [
+      { from: "tech-debt", to: "improvement" },
+      { from: "perf", to: "improvement" },
+      { from: "config", to: "improvement" },
+      { from: "legacy-audit", to: "improvement" },
+      { from: "enhancement", to: "improvement" },
+      { from: "documentation", to: "improvement" },
+      { from: "bug", to: "bugfix" },
+    ],
+    removals: [
+      // The three that carry doctrine meaning, and therefore need a reason a reader will accept.
+      { name: "rfc", reason: "Gate 1 is a sub-issue now, not a label. `rfc` also never described how it was used — there was no wider audience to request comment from." },
+      { name: "idea", reason: "Derived: a work item with no gate 1 and no milestone IS an idea. A label saying so is a second copy that can disagree." },
+      { name: "plan-next", reason: "Derived: the milestone means committed, and the gates say how far along it is. Nothing is left for the label to add." },
+      // GitHub's stock set. Every repo has these, none of them belong to this model.
+      { name: "good first issue", reason: "GitHub stock label; not part of the two-axis model." },
+      { name: "help wanted", reason: "GitHub stock label; not part of the two-axis model." },
+      { name: "question", reason: "GitHub stock label; a question is a comment, not a work item." },
+      { name: "duplicate", reason: "GitHub stock label; \"closed as duplicate\" is native now." },
+      { name: "invalid", reason: "GitHub stock label; \"closed as not planned\" is native now." },
+      { name: "wontfix", reason: "GitHub stock label; \"closed as not planned\" is native now." },
+    ],
+  },
+];
 
 /** Compare `1.2.10`-style versions numerically. Pre-release suffixes are ignored. */
 export function compareSemver(a: string, b: string): number {

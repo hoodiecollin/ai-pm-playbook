@@ -17,6 +17,8 @@ import { migrate } from "./commands/migrate.js";
 import { pull } from "./commands/pull.js";
 import { push } from "./commands/push.js";
 import { create } from "./commands/create.js";
+import { ladder } from "./commands/ladder.js";
+import { materialize } from "./commands/materialize.js";
 import { releaseCheck } from "./commands/release-check.js";
 import { scopeCheck } from "./commands/scope-check.js";
 
@@ -38,6 +40,10 @@ COMMANDS
                           moved. Previews by default; --yes to apply.
   create                  Publish drafts under backlog/new/. Validates labels, milestones and the
                           invariants offline first. Previews by default; --yes to apply.
+  materialize             Create the gate sub-issues for a milestone's work items, as complete
+                          sets. Idempotent and resumable. Previews by default; --yes to apply.
+  ladder                  Where every work item sits on the commitment ladder (derived from gate
+                          state, so no filter can answer it).
   release-check <vX.Y.Z>  Can this milestone be tagged? Exit 1 if gated or incomplete.
   scope-check <pr>        Cycle-scope gate (§5.3): refuse a PR to the integration branch that
                           closes work milestoned past the cycle in flight.
@@ -61,6 +67,20 @@ BOOTSTRAP OPTIONS
   --surfaces a,b,c        Create surface:* labels — only for repos shipping >1 artifact
   --milestone vX.Y.Z      Starter milestone title
   --dry-run               Print what would happen; make no changes
+
+MATERIALIZE OPTIONS
+  --repo owner/name       Target repository (default: detected from the git remote)
+  --milestone vX.Y.Z      Milestone to materialize (default: the cycle in flight)
+  --issue <n>             Materialize one work item by decision — the path experiments take,
+                          since an experiment never carries a milestone
+  --yes                   Actually apply. Without it, materialize only previews.
+  --json                  Emit the plan as JSON
+
+LADDER OPTIONS
+  --repo owner/name       Target repository (default: detected from the git remote)
+  --milestone vX.Y.Z      Only work items on this milestone
+  --all-states            Include closed work items
+  --json                  Emit the ladder as JSON (for agents and roadmap generators)
 
 MIGRATE OPTIONS
   --repo owner/name       Target repository (default: detected from the git remote)
@@ -130,6 +150,10 @@ async function main(): Promise<number> {
       return push(args, repoRoot);
     case "create":
       return create(args, repoRoot);
+    case "materialize":
+      return materialize(args, repoRoot);
+    case "ladder":
+      return ladder(args, repoRoot);
     case "release-check":
       return releaseCheck(args, repoRoot, args._[1]);
     case "scope-check":

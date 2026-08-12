@@ -12,19 +12,234 @@ export interface LabelSpec {
   description: string;
 }
 
-/** The "what / maturity" axis (PLAYBOOK §3.1). Portable verbatim. */
-export const MATURITY_LABELS: LabelSpec[] = [
-  { name: "idea", color: "c5def5", description: "Speculative feature idea; needs a design note before implementation." },
-  { name: "plan-next", color: "0e8a16", description: "Committed but not yet scheduled to a version milestone (milestone = scheduled)." },
-  { name: "rfc", color: "5319e7", description: "Request for comment: design captured as an issue (proposals no longer committed to the repo)." },
-  { name: "experiment", color: "a2eeef", description: "A spike to measure; deliverable is a decision, not a shippable artifact. Never milestoned." },
-  { name: "epic", color: "6f42c1", description: "Umbrella tracking issue; decomposes via native sub-issues." },
-  { name: "tech-debt", color: "fbca04", description: "Known gap or stub in shipped code." },
-  { name: "perf", color: "d93f0b", description: "Performance cost / triage item." },
-  { name: "config", color: "1d76db", description: "Configurable-runtime-behavior work." },
-  { name: "legacy-audit", color: "5319e7", description: "Legacy audit: prune dead / product-misaligned code." },
+/** The three kinds of work (PLAYBOOK §3.1). Every work item carries exactly one. */
+export type WorkType = "improvement" | "bugfix" | "experiment";
+
+export interface GateSpec {
+  /** 1-based ordinal. Gates are an ordered sequence; the number is part of the label. */
+  n: number;
+  /** The verb the derived ladder names this gate with (§2). `design` → `design-next`. */
+  verb: string;
+  /** The full prose, used in the materialized gate's body. §3.1: the description IS the process. */
+  description: string;
+  /**
+   * The same thing, said in ≤100 characters, because that is GitHub's hard cap on a label
+   * description and it rejects the whole write rather than truncating. Kept separate from
+   * `description` rather than derived from it: a machine-truncated sentence loses its verb and
+   * stops being the process, which is the only reason the label carries a description at all.
+   */
+  labelDescription: string;
+  /**
+   * The body a materialized gate opens with.
+   *
+   * Gates are created by the tool, so nobody is prompted by an issue template — this is where the
+   * prompting has to live instead. An empty gate would be a checkbox; a seeded one asks the
+   * questions the gate exists to force.
+   */
+  seed: string;
+}
+
+/**
+ * The gate sequence per work type — the single table the whole model is generated from.
+ *
+ * Label names, label descriptions, gate counts, ladder state names and the completeness rule all
+ * read this and nothing else, so adding a fourth work type is a row here rather than new logic.
+ */
+export const GATES: Record<WorkType, GateSpec[]> = {
+  improvement: [
+    {
+      n: 1, verb: "design",
+      description: "Gate 1 — the design: problem, desired behavior, solution shape, alternatives, non-goals. Closed means accepted.",
+      labelDescription: "Gate 1 — the design: problem, behavior, solution shape, alternatives. Closed = accepted.",
+      seed: [
+        "### Problem",
+        "<!-- What is wrong or missing, in plain English. Not the solution. -->",
+        "",
+        "### Desired behavior",
+        "",
+        "### Solution shape",
+        "<!-- Solution-SHAPED, not code-shaped. File lists and signatures belong to gate 2. -->",
+        "",
+        "### Alternatives considered",
+        "",
+        "### Non-goals & limits",
+        "<!-- What this deliberately does not do. The most-skipped section and the most useful one. -->",
+      ].join("\n"),
+    },
+    {
+      n: 2, verb: "plan",
+      description: "Gate 2 — the implementation plan: files, build order, interfaces, blockers, and the BDD scenarios to write. Closed means accepted.",
+      labelDescription: "Gate 2 — the plan: files, build order, interfaces, scenarios. Closed = accepted.",
+      seed: [
+        "### Files to create / modify",
+        "",
+        "### Build order",
+        "<!-- Each step independently reviewable, each leaving the suite green. -->",
+        "",
+        "### Interfaces / signatures",
+        "",
+        "### Dependencies & blockers",
+        "",
+        "### BDD scenarios (gate 3 seed)",
+        "<!-- Given / When / Then. These ARE the acceptance criteria. -->",
+        "",
+        "### Execution gotchas",
+      ].join("\n"),
+    },
+    {
+      n: 3, verb: "impl",
+      description: "Gate 3 — the build: scenarios RED, implement to GREEN, refactor under green. Closing it closes the work item.",
+      labelDescription: "Gate 3 — the build: scenarios RED, implement to GREEN, refactor. Closes the work item.",
+      seed: [
+        "### RED",
+        "<!-- The scenarios from gate 2, written as failing specs. Link the commit. -->",
+        "",
+        "### GREEN",
+        "",
+        "### Deviations from the plan",
+        "<!-- Anything gate 2 got wrong. This is the feedback that makes the next plan better. -->",
+      ].join("\n"),
+    },
+  ],
+  bugfix: [
+    {
+      n: 1, verb: "diagnose",
+      description: "Gate 1 — the diagnosis: reproduction, root cause, blast radius. For a hotfix this also carries the warrant. Closed means understood.",
+      labelDescription: "Gate 1 — the diagnosis: reproduction, root cause, blast radius. Closed = understood.",
+      seed: [
+        "### Reproduction",
+        "<!-- Exact steps or inputs. If it cannot be reproduced, it cannot be diagnosed. -->",
+        "",
+        "### Root cause",
+        "<!-- The mechanism, cited to a file and line. Not the symptom. -->",
+        "",
+        "### Blast radius",
+        "",
+        "### Warrant (hotfix only)",
+        "<!-- Why waiting for the next scheduled release is unacceptable, in damage rather than time.",
+        "     And what the fix will NOT touch: no public API, schema, config surface or dependency. -->",
+      ].join("\n"),
+    },
+    {
+      n: 2, verb: "fix",
+      description: "Gate 2 — the fix, spec-first: the regression test fails before and passes after. Closing it closes the work item.",
+      labelDescription: "Gate 2 — the fix, spec-first: the regression test fails before, passes after.",
+      seed: [
+        "### The regression test",
+        "<!-- Written FIRST, from the reproduction above. Failing before, passing after — that is what",
+        "     mechanically proves the fix is bounded. -->",
+        "",
+        "### The fix",
+        "",
+        "### Forward-port (hotfix only)",
+        "<!-- A hotfix lands on `main` and is then merged forward. Not done until both carry it, or the",
+        "     next release silently regresses the bug. -->",
+      ].join("\n"),
+    },
+  ],
+  experiment: [
+    {
+      n: 1, verb: "research",
+      description: "Gate 1 — the charter: the question (which must be able to come back \"no\"), the decision it informs, the method, the scope bound, and what happens to any code produced.",
+      labelDescription: "Gate 1 — the charter: the question, the decision it informs, the method, the bound.",
+      seed: [
+        "### The question",
+        "<!-- Phrased so that \"no\" is a real possible answer. A question that can only come back yes",
+        "     is not research, it is a plan wearing a costume. -->",
+        "",
+        "### The decision this informs",
+        "",
+        "### Method, and what \"fair\" means here",
+        "<!-- §4 requires apples-to-apples. Say what would make the comparison dishonest. -->",
+        "",
+        "### Scope bound",
+        "<!-- How far this goes before it stops and reports, expressed in work rather than time. -->",
+        "",
+        "### Disposal of any code produced",
+        "<!-- POC code lives on `spike/<issue>-<slug>` and NEVER merges. The branch dies at verdict. -->",
+      ].join("\n"),
+    },
+    {
+      n: 2, verb: "evaluate",
+      description: "Gate 2 — the verdict: what was done, the answer, its limits, and the disposition. A verdict is required to close, because the verdict IS the deliverable.",
+      labelDescription: "Gate 2 — the verdict: the answer, its limits, the disposition. The verdict IS the work.",
+      seed: [
+        "### What was done",
+        "",
+        "### The answer",
+        "",
+        "### Limits",
+        "<!-- What this does NOT establish. A finding used beyond its limits is worse than no finding. -->",
+        "",
+        "### Disposition",
+        "<!-- Exactly one: COMMITS work (link the issues filed) · KILLS it (link what was closed as not",
+        "     planned) · INCONCLUSIVE (say what would decide it). -->",
+      ].join("\n"),
+    },
+  ],
+};
+
+export const WORK_TYPES = Object.keys(GATES) as WorkType[];
+
+/** `improvement:gate-2`. Prefixed because the per-type descriptions describe different work (§3.1). */
+export function gateLabel(type: WorkType, n: number): string {
+  return `${type}:gate-${n}`;
+}
+
+/** Every gate label name, in type-then-ordinal order. */
+export function allGateLabels(): string[] {
+  return WORK_TYPES.flatMap((t) => GATES[t].map((g) => gateLabel(t, g.n)));
+}
+
+/** The type and ordinal a gate label names, or null when it is not a gate label. */
+export function parseGateLabel(label: string): { type: WorkType; n: number } | null {
+  const [type, tail] = label.split(":");
+  if (!tail || !WORK_TYPES.includes(type as WorkType)) return null;
+  const m = /^gate-(\d+)$/.exec(tail);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return GATES[type as WorkType].some((g) => g.n === n) ? { type: type as WorkType, n } : null;
+}
+
+/** The work type an issue's labels declare, or null when none or more than one is present. */
+export function workTypeOf(labels: string[]): WorkType | null {
+  const found = WORK_TYPES.filter((t) => labels.includes(t));
+  return found.length === 1 ? found[0]! : null;
+}
+
+/** Is this issue a gate? True iff it carries any `{type}:gate-{n}` label. */
+export function gateOf(labels: string[]): { type: WorkType; n: number } | null {
+  for (const l of labels) {
+    const g = parseGateLabel(l);
+    if (g) return g;
+  }
+  return null;
+}
+
+/**
+ * GitHub's hard cap on a label description. It rejects the entire write with a 422 rather than
+ * truncating, so an over-long description is not a cosmetic problem — it means the label is never
+ * created, and `bootstrap` leaves the repo half-provisioned.
+ */
+export const MAX_LABEL_DESCRIPTION = 100;
+
+/** The "what" axis (PLAYBOOK §3.1). Portable verbatim — the descriptions are the process. */
+export const TYPE_LABELS: LabelSpec[] = [
+  { name: "improvement", color: "0e8a16", description: "Work that makes the product better: features, refactors, perf, debt. Gates: design → plan → impl." },
+  { name: "bugfix", color: "d73a4a", description: "A defect in behavior that already exists. Two gates: diagnose → fix." },
+  { name: "experiment", color: "a2eeef", description: "Deliverable is a finding, not a shippable artifact. Gates: research → evaluate. Never milestoned." },
+  { name: "hotfix", color: "b60205", description: "Urgent bugfix in released behavior, on its own patch milestone. Never alone — always with `bugfix`." },
+  { name: "epic", color: "6f42c1", description: "Umbrella tracking issue; decomposes via sub-issues. Not a work type, and never carries gates." },
   { name: "release-gate", color: "b60205", description: "Blocks the tag: this milestone cannot be released until it is closed." },
 ];
+
+/** The seven gate labels, generated from `GATES` so the two can never disagree. */
+export const GATE_LABELS: LabelSpec[] = WORK_TYPES.flatMap((t) =>
+  GATES[t].map((g) => ({ name: gateLabel(t, g.n), color: "ededed", description: g.labelDescription })),
+);
+
+/** Everything `bootstrap` creates, minus the dynamic `surface:*` set. */
+export const CORE_LABELS: LabelSpec[] = [...TYPE_LABELS, ...GATE_LABELS];
 
 export const SURFACE_COLORS: Record<string, string> = {
   "ide-extension": "007ACC",
@@ -59,6 +274,17 @@ export function parseVersion(title: string): number[] | null {
   const m = /^v(\d+(?:\.\d+)*)/i.exec(title.trim());
   if (!m) return null;
   return m[1]!.split(".").map(Number);
+}
+
+/**
+ * A patch milestone — `v1.2.1`, not `v1.2.0` (§5.6).
+ *
+ * The patch component being non-zero is the whole test. A two-component title (`v1.2`) names the
+ * line rather than a patch on it, so its missing component reads as zero and it is not one.
+ */
+export function isPatchMilestone(title: string): boolean {
+  const v = parseVersion(title);
+  return v !== null && (v[2] ?? 0) > 0;
 }
 
 /** Compare core milestone titles by version order. Shorter sorts first (`v1` before `v1.1`). */
@@ -122,15 +348,34 @@ export interface ViewSpec {
   group?: string;
 }
 
+/** `label:a,b,c` — GitHub's OR form. Generated so a new gate can never be missed from a filter. */
+const ANY_GATE = `label:${allGateLabels().join(",")}`;
+const NO_GATE = allGateLabels().map((l) => `-label:${l}`).join(" ");
+
+/**
+ * The saved views (§8).
+ *
+ * **The derived ladder is not expressible here, and that is a deliberate limit rather than an
+ * omission.** A bucket like "past design" is a property of a work item computed from its
+ * *children*, and no GitHub filter can reach across the parent/sub-issue relation. So the views
+ * split by audience: the board answers "what is being worked on" from the gates themselves, where
+ * the state IS a label and a filter works; `pm-playbook ladder` answers "what stage is each work
+ * item at", which needs computation; and the roadmap (§7.2) computes its own buckets.
+ *
+ * Every work-item view excludes gates. A three-item milestone whose gates all showed up would
+ * render as twelve rows, and the roadmap would read as four times the work.
+ */
 export const VIEWS: ViewSpec[] = [
   { name: "Everything", layout: "table" },
+  { name: "Work items", layout: "table", filter: NO_GATE },
   { name: "Epics", layout: "table", filter: "label:epic" },
-  { name: "Planned", layout: "table", filter: "label:plan-next" },
-  { name: "Labs", layout: "table", filter: "label:experiment,rfc" },
-  { name: "Ideas", layout: "table", filter: "label:idea" },
+  { name: "Labs", layout: "table", filter: "label:experiment" },
+  { name: "Hotfixes", layout: "table", filter: "label:hotfix" },
+  // The execution view that replaces the maturity-label boards: an open gate IS work in progress.
+  { name: "Open gates", layout: "table", filter: `${ANY_GATE} is:open` },
   // "Can we tag?" — an open row here means the milestone it names is blocked (§5.2).
   { name: "Release gates", layout: "table", filter: "label:release-gate is:open" },
-  { name: "Release spine", layout: "board", group: "Milestone" },
+  { name: "Release spine", layout: "board", filter: NO_GATE, group: "Milestone" },
   { name: "Execution", layout: "board", group: "Status" },
   { name: "Surface Board", layout: "board", group: "surface:* label (multi-artifact repos only)" },
 ];

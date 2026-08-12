@@ -9,11 +9,14 @@
 /**
  * Where an issue sits in the tree.
  *
- * This is derived from GitHub state rather than declared: an issue with the `epic` label is an
- * epic, an issue with a parent is a sub-issue, and everything else is standalone. A standalone
- * issue therefore cannot have sub-issues by construction (PLAYBOOK §7.1).
+ * This is derived from GitHub state rather than declared: a `{type}:gate-{n}` label makes it a gate,
+ * otherwise a parent makes it a sub-issue, the `epic` label makes it an epic, and everything else is
+ * standalone. A standalone issue therefore cannot have sub-issues by construction (PLAYBOOK §7.1).
+ *
+ * The gate check comes first because a gate always has a parent and would otherwise read as an
+ * ordinary sub-issue — which would put it under `subissues/` and lose the level entirely.
  */
-export type EntityKind = "standalone" | "epic" | "subissue";
+export type EntityKind = "standalone" | "epic" | "subissue" | "gate";
 
 export type EntityState = "OPEN" | "CLOSED";
 
@@ -31,7 +34,10 @@ export interface Comment {
 export interface BacklogEntity {
   number: number;
   kind: EntityKind;
-  /** The parent epic's number. Set iff `kind === "subissue"`. */
+  /**
+   * The parent's number — an epic for a `subissue`, a work item for a `gate`. Null for the two
+   * root kinds. Set iff `kind` is `subissue` or `gate`.
+   */
   parent: number | null;
   title: string;
   state: EntityState;

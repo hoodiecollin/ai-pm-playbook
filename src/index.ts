@@ -9,12 +9,17 @@ export { checkIssues, checkPullRequestScope, releaseBlockers, RULES } from "./li
 export type { Violation, Severity, RuleMeta } from "./lib/invariants.js";
 
 export {
-  MATURITY_LABELS, VIEWS, SURFACE_COLORS, CORE_SURFACE, SURFACE_PREFIX,
-  surfaceLabel, isCoreMilestone, parseVersion, compareMilestones, currentCycle,
+  TYPE_LABELS, GATE_LABELS, CORE_LABELS, GATES, WORK_TYPES, VIEWS,
+  SURFACE_COLORS, CORE_SURFACE, SURFACE_PREFIX, surfaceLabel,
+  gateLabel, allGateLabels, parseGateLabel, workTypeOf, gateOf,
+  isCoreMilestone, isPatchMilestone, parseVersion, compareMilestones, currentCycle,
 } from "./lib/model.js";
-export type { LabelSpec, ViewSpec } from "./lib/model.js";
+export type { LabelSpec, ViewSpec, WorkType, GateSpec } from "./lib/model.js";
 
-export { listIssues, listMilestones, detectRepo, epicSubIssueCounts, pullRequestScope, requireGh } from "./lib/gh.js";
+export { ladderState, LADDER_STATES } from "./lib/ladder.js";
+export type { Ladder, GateView, WorkItemView } from "./lib/ladder.js";
+
+export { listIssues, listMilestones, detectRepo, epicSubIssueCounts, fetchParentage, pullRequestScope, requireGh } from "./lib/gh.js";
 export type { Issue, Milestone, IssueRef, PullRequestScope } from "./lib/gh.js";
 
 export { MIGRATIONS, compareSemver, pendingMigrations, planMigrations } from "./lib/migrations.js";
