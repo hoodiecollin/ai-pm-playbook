@@ -140,6 +140,13 @@ And as a tag gate (§5.2):
   env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
 ```
 
+**Mind where that step goes (§5.5).** Two workflows triggered by the same tag push are
+independent, so putting this in its own tag-triggered workflow means it runs *beside* your release
+workflow while artifacts build and publish — it fails loudly and blocks nothing. To make it an
+actual gate, put it in a job your release jobs `needs:`, in your release tool's pre-release hook,
+or behind a required status check. Running it parallel-and-loud is a legitimate choice; running it
+that way *by accident* is the one to avoid.
+
 And on pull requests targeting the integration branch (§5.3) — this refuses to land next-cycle work
 on `develop`. The cycle in flight is derived from the lowest open core milestone, so there is no
 constant to keep updated:
