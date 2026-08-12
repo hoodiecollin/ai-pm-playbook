@@ -57,23 +57,23 @@ describe("entityDir — sub-issues nest inside their parent", () => {
   const sub = entity({ number: 15, kind: "subissue", parent: 12 });
 
   test("an open sub-issue of an open epic", () => {
-    expect(entityDir(sub, epic)).toBe("epics/12/subissues/15");
+    expect(entityDir(sub, [epic])).toBe("epics/12/subissues/15");
   });
 
   test("a closed sub-issue moves under its own _/", () => {
-    expect(entityDir({ ...sub, state: "CLOSED" }, epic)).toBe("epics/12/subissues/_/15");
+    expect(entityDir({ ...sub, state: "CLOSED" }, [epic])).toBe("epics/12/subissues/_/15");
   });
 
   test("closing the epic moves its children with it", () => {
-    expect(entityDir(sub, closedEpic)).toBe("epics/_/12/subissues/15");
+    expect(entityDir(sub, [closedEpic])).toBe("epics/_/12/subissues/15");
   });
 
   test("a closed sub-issue of a closed epic composes both _/ levels", () => {
-    expect(entityDir({ ...sub, state: "CLOSED" }, closedEpic)).toBe("epics/_/12/subissues/_/15");
+    expect(entityDir({ ...sub, state: "CLOSED" }, [closedEpic])).toBe("epics/_/12/subissues/_/15");
   });
 
   test("rendering a sub-issue without its parent is a programming error, not a guess", () => {
-    expect(() => entityDir(sub)).toThrow(/parent/i);
+    expect(() => entityDir(sub)).toThrow(/ancestor chain/i);
   });
 });
 
@@ -85,27 +85,27 @@ describe("bodyPath", () => {
 
 describe("commentFileName — ordinal for order, ID for identity", () => {
   test("pads the ordinal to three digits and is 1-based", () => {
-    expect(commentFileName(1, 2145678901)).toBe("comment-001-2145678901.md");
+    expect(commentFileName(1, 2145678901)).toBe("comment-001--2145678901.md");
   });
 
   test("carries the comment ID verbatim", () => {
-    expect(commentFileName(12, 7)).toBe("comment-012-7.md");
+    expect(commentFileName(12, 7)).toBe("comment-012--7.md");
   });
 });
 
 describe("commentFileNames — the ordinal is a whole-thread property", () => {
   test("a twelve-comment thread sorts lexically in creation order", () => {
     const names = commentFileNames(Array.from({ length: 12 }, (_, i) => comment(9000 - i)));
-    expect(names[0]).toBe("comment-001-9000.md");
-    expect(names[11]).toBe("comment-012-8989.md");
+    expect(names[0]).toBe("comment-001--9000.md");
+    expect(names[11]).toBe("comment-012--8989.md");
     expect([...names].sort()).toEqual(names);
   });
 
   test("widens past three digits so lexical order never diverges from numeric", () => {
     // "1000" < "999" lexically — a fixed width would silently reorder the tail.
     const names = commentFileNames(Array.from({ length: 1000 }, (_, i) => comment(i + 1)));
-    expect(names[0]).toBe("comment-0001-1.md");
-    expect(names[999]).toBe("comment-1000-1000.md");
+    expect(names[0]).toBe("comment-0001--1.md");
+    expect(names[999]).toBe("comment-1000--1000.md");
     expect([...names].sort()).toEqual(names);
   });
 

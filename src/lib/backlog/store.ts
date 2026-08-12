@@ -62,12 +62,36 @@ function readComments(dir: string): Comment[] {
 }
 
 /** Write one entity's `body.md` and comment files to its canonical location. */
-export function writeEntity(root: string, e: BacklogEntity, parent?: BacklogEntity | null): string {
-  const dir = entityDir(e, parent);
+export function writeEntity(root: string, e: BacklogEntity, ancestors: BacklogEntity[] = []): string {
+  const dir = entityDir(e, ancestors);
   write(join(root, dir, BODY_FILE), renderBody(e));
   const names = commentFileNames(e.comments);
   e.comments.forEach((c, i) => write(join(root, dir, names[i]!), renderComment(c)));
   return dir;
+}
+
+/**
+ * The chain from the tree root down to an entity's immediate parent.
+ *
+ * Every level's state appears in the path, so a gate three levels down needs its grandparent as
+ * much as its parent — closing the epic has to move the gate too. The walk stops at a broken link
+ * rather than throwing: `entityDir` will report the mismatch with the entity's own number, which is
+ * a far more useful error than one raised here with no context.
+ */
+function ancestorsOf(e: BacklogEntity, entities: Map<number, BacklogEntity>): BacklogEntity[] {
+  const chain: BacklogEntity[] = [];
+  let current = e;
+  const seen = new Set<number>([e.number]);
+  while (current.parent !== null) {
+    const parent = entities.get(current.parent);
+    // A cycle cannot happen through GitHub, but a hand-edited tree can produce one, and an infinite
+    // loop here would hang `pull` with no output at all.
+    if (!parent || seen.has(parent.number)) break;
+    chain.unshift(parent);
+    seen.add(parent.number);
+    current = parent;
+  }
+  return chain;
 }
 
 /**
@@ -80,8 +104,7 @@ export function writeEntity(root: string, e: BacklogEntity, parent?: BacklogEnti
 export function writeTree(root: string, entities: Map<number, BacklogEntity>): string[] {
   const keep = new Set<string>();
   for (const e of entities.values()) {
-    const parent = e.parent === null ? null : (entities.get(e.parent) ?? null);
-    keep.add(writeEntity(root, e, parent));
+    keep.add(writeEntity(root, e, ancestorsOf(e, entities)));
   }
 
   const stale: string[] = [];
