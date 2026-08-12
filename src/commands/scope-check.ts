@@ -9,8 +9,8 @@
  * consulting it beats duplicating it into a version-named branch — which is precisely the
  * parallel-decomposition anti-pattern §5.3 exists to prevent.
  *
- * The cycle in flight is DERIVED (lowest open core milestone), never configured, so there is no
- * constant to update and nothing that can drift from the actual spine.
+ * The cycle in flight is DERIVED (lowest open core milestone on an unreleased line), never
+ * configured, so there is no constant to update and nothing that can drift from the actual spine.
  */
 
 import { currentCycle } from "../lib/model.js";
@@ -77,7 +77,7 @@ export async function scopeCheck(args: Args, repoRoot: string, prArg?: string): 
   }
 
   console.log(`Cycle-scope gate — ${repo}#${pr} → ${integration}`);
-  console.log(`Cycle in flight: ${cycle} (derived: lowest open core milestone)\n`);
+  console.log(`Cycle in flight: ${cycle} (derived: lowest open core milestone on an unreleased line)\n`);
 
   for (const v of [...errors, ...warnings]) {
     console.log(`${v.severity === "error" ? "✗" : "!"} ${v.rule} (${v.section}) #${v.issue!.number} ${v.issue!.title}`);

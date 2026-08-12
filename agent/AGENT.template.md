@@ -103,8 +103,10 @@ means "the cycle in flight," so it becomes the next cycle at tag time with no re
 
 Work milestoned **past the cycle in flight** does not go on it. Put it on its own branch off the
 integration branch, unmerged, carrying its real milestone; rebase after the release merge. The
-cycle in flight is *derived* — the lowest open core `v*` milestone — so read it from the
-milestones, never from a constant.
+cycle in flight is *derived* — the lowest open core `v*` milestone whose `major.minor` line has no
+closed milestone on it — so read it from the milestones, never from a constant. The line clause is
+what stops a patch milestone (`v1.2.1`, opened against a released version) from being mistaken for
+the cycle and blocking everything.
 
 **Closing keywords do not reach an issue merged into an integration branch.** GitHub honours
 `Closes #<n>` only for PRs targeting the *default* branch, so a PR into `develop` leaves its issue
