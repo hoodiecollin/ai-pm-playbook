@@ -37,14 +37,17 @@ jobs:
           npx @hoodiecollin/pm-playbook init
           test -f .pm-playbook/AGENT.md
           test -f .pm-playbook/manifest.json
-          test -f .github/ISSUE_TEMPLATE/rfc.md
+          test -f .github/ISSUE_TEMPLATE/improvement.md
           grep -q 'pm-playbook:begin' AGENTS.md
           # A clean adoption must be violation-free, and re-running must change nothing.
           npx @hoodiecollin/pm-playbook check --no-remote --strict
           npx @hoodiecollin/pm-playbook init | grep -q 'already current'
           # A fresh adoption is born current: bootstrap creates today's taxonomy directly, so
-          # there is never migration history to replay into it.
-          grep -q '"migratedThrough": "1' .pm-playbook/manifest.json
+          # there is never migration history to replay into it. Compared against the CLI's own
+          # version rather than a hardcoded prefix, which silently stops testing anything the
+          # moment the major changes.
+          VERSION="$(npx @hoodiecollin/pm-playbook version)"
+          grep -q "\"migratedThrough\": \"${VERSION}\"" .pm-playbook/manifest.json
           npx @hoodiecollin/pm-playbook migrate | grep -q 'No pending label migrations'
 
   plugin:
