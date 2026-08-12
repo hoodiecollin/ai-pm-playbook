@@ -10,9 +10,9 @@
  *
  * WHAT IT CAN AND CANNOT SEE
  * The hook receives only the command TEXT, never the repository. So it catches violations that are
- * self-evident in the command itself — `--label plan-next --milestone v0.4.0` — and cannot catch
+ * self-evident in the command itself — `--label improvement --label bugfix` — and cannot catch
  * one that depends on the issue's existing state, e.g. `gh issue edit 7 --milestone v0.4.0` where
- * #7 already carries `plan-next`. That residue is what `pm-playbook check` is for. A fast, partial,
+ * #7 already carries a conflicting label. That residue is what `pm-playbook check` is for. A fast, partial,
  * always-correct gate beats a slow, complete one that makes every Bash call wait on the network.
  *
  * FAILURE POSTURE
@@ -116,7 +116,7 @@ function tokenize(segment) {
 /**
  * Extract the labels being ADDED and the milestone being SET.
  *
- * Only additive flags count. `--remove-label plan-next` is the fix for PM001, so treating it as a
+ * Only additive flags count. `--remove-label bugfix` is the fix for PM010, so treating it as a
  * label mention would block the very command that resolves the violation.
  */
 function parseIssueMutation(tokens) {
@@ -172,36 +172,50 @@ function evaluate({ labels, milestone }) {
   const scheduled = milestone !== null;
   const violations = [];
 
-  if (has("plan-next") && scheduled) {
+  const TYPES = ["improvement", "bugfix", "experiment"];
+  const types = TYPES.filter(has);
+
+  if (types.length > 1) {
     violations.push(
-      `PM001 — \`plan-next\` cannot coexist with a milestone (\`${milestone}\`). Assigning a milestone IS scheduling, so the label must come off in the same command.\n` +
-        `  Fix: drop \`--label plan-next\`, or add \`--remove-label plan-next\` if editing.`,
+      `PM010 — a work item carries exactly one work type, and this names ${types.length} (${types.join(", ")}). The type decides which gates the item takes, so two of them make "is this done?" unanswerable.\n` +
+        `  Fix: keep one — drop \`--label ${types.slice(1).join(",")}\`.`,
     );
   }
-  if (has("idea") && has("plan-next")) {
+  if (has("experiment") && scheduled) {
     violations.push(
-      "PM002 — `idea` cannot coexist with `plan-next`. Speculative and committed are opposite rungs of the ladder.\n" +
-        "  Fix: pick one. An accepted RFC (Gate 1) means it is committed — use `plan-next` alone.",
+      `PM003 — \`experiment\` cannot coexist with a milestone (\`${milestone}\`). A spike's deliverable is a finding, not a shippable artifact: it feeds the release spine, it never rides it.\n` +
+        "  Fix: leave the spike off the spine. If its verdict commits real work, file THAT as its own issue and milestone it.",
     );
   }
-  if (has("experiment")) {
-    const conflicts = ["idea", "plan-next"].filter(has);
-    if (scheduled) conflicts.push(`a milestone (\`${milestone}\`)`);
-    if (conflicts.length) {
+  if (has("release-gate") && has("experiment")) {
+    violations.push(
+      "PM005 — `release-gate` cannot coexist with `experiment`. A release obligation blocks a tag, so it is committed by definition — which a spike never is.\n" +
+        "  Fix: remove `--label experiment`.",
+    );
+  }
+  if (has("hotfix")) {
+    if (!has("bugfix")) {
       violations.push(
-        `PM003 — \`experiment\` cannot coexist with ${conflicts.join(", ")}. A spike's deliverable is a decision, not a shippable artifact: it feeds the release spine, it never rides it.\n` +
-          "  Fix: leave the spike off the spine. If its conclusion commits real work, file THAT as its own issue and milestone it.",
+        "PM014 — `hotfix` requires `bugfix`. A hotfix is a *form* of bugfix, not a fourth work type: the urgency changes the milestone and the branch, not the kind of work or the gates.\n" +
+          "  Fix: add `--label bugfix`.",
+      );
+    }
+    const forbidden = ["experiment", "epic"].filter(has);
+    if (forbidden.length) {
+      violations.push(
+        `PM014 — \`hotfix\` cannot coexist with ${forbidden.join(", ")}. A hotfix is bounded, released-behavior work — neither a spike nor a container.\n` +
+          `  Fix: drop \`--label ${forbidden.join(",")}\`.`,
       );
     }
   }
-  if (has("release-gate")) {
-    const conflicts = ["idea", "plan-next", "experiment"].filter(has);
-    if (conflicts.length) {
-      violations.push(
-        `PM005 — \`release-gate\` cannot coexist with ${conflicts.join(", ")}. A release obligation is committed by definition, so it is never speculative or unscheduled.\n` +
-          "  Fix: remove the conflicting label(s).",
-      );
-    }
+  // A gate label on a hand-written `gh issue create` is the one thing that would break the meaning
+  // of an ABSENT gate — which is what PM013 relies on. `materialize` owns gate creation entirely.
+  const gate = [...labels].find((l) => /^(improvement|bugfix|experiment):gate-\d+$/.test(l));
+  if (gate) {
+    violations.push(
+      `PM105 — \`${gate}\` is a gate label, and gates are never created by hand. The tool creates them as a complete set, which is the only reason an absent gate can mean anything.\n` +
+        "  Fix: file the work item, then `pm-playbook materialize --yes` (or `--issue <n>` for an experiment).",
+    );
   }
   // PM004 (release-gate requires a milestone) is checked only on `create`: an `edit` that adds the
   // label may be paired with a milestone the issue already has, which this hook cannot see.
