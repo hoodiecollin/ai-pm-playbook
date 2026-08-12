@@ -121,6 +121,21 @@ export async function migrate(args: Args, repoRoot: string): Promise<number> {
   setMigratedThrough(repoRoot, installed);
   console.log(`\n✓ Applied. Recorded migratedThrough = v${installed}.`);
   console.log("  Commit the updated .pm-playbook/manifest.json.");
+
+  // Saying this out loud is the point. A migration that reports success while half the upgrade is
+  // still owed reads as "done", and the half nobody was told about is the structural half.
+  if (work.some((a) => a.from === "rfc" || a.from === "idea" || a.from === "plan-next")) {
+    console.log("");
+    console.log("LABELS are migrated. The STRUCTURAL half of 2.0 is manual and is not done:");
+    console.log("  1. Every work item needs exactly one type label (`improvement` / `bugfix` /");
+    console.log("     `experiment`). The merges above typed most of them; `check` names the rest (PM010).");
+    console.log("  2. Each former `rfc` issue becomes a gate-1 sub-issue of the work item it designs.");
+    console.log("     Nothing can infer that pairing, so it is a read-and-move pass.");
+    console.log("  3. Work already on the cycle in flight needs its gate set:");
+    console.log("     pm-playbook materialize --yes");
+    console.log("");
+    console.log("Run `pm-playbook check` — PM010 and PM013 enumerate exactly what is still owed.");
+  }
   return 0;
 }
 

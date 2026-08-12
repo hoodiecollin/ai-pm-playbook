@@ -11,7 +11,7 @@
  *   gh auth refresh -s project,read:project
  */
 
-import { MATURITY_LABELS, VIEWS, surfaceLabel } from "../lib/model.js";
+import { CORE_LABELS, VIEWS, surfaceLabel } from "../lib/model.js";
 import { ownerType, requireGh } from "../lib/gh.js";
 import { run, tryRun } from "../lib/sh.js";
 import { bool, list, str, type Args } from "../lib/args.js";
@@ -36,7 +36,7 @@ export async function bootstrap(args: Args, repoArg?: string): Promise<number> {
   // --- Labels --------------------------------------------------------------
   console.log("\n=== Labels ===");
   const surfaces = list(args, "surfaces") ?? [];
-  const labels = [...MATURITY_LABELS, ...surfaces.map(surfaceLabel)];
+  const labels = [...CORE_LABELS, ...surfaces.map(surfaceLabel)];
 
   for (const l of labels) {
     console.log(`${tag}label ${l.name.padEnd(18)} #${l.color}  ${l.description}`);
