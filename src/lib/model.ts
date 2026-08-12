@@ -20,8 +20,15 @@ export interface GateSpec {
   n: number;
   /** The verb the derived ladder names this gate with (§2). `design` → `design-next`. */
   verb: string;
-  /** Copied verbatim onto the gate label. §3.1: the description IS the process. */
+  /** The full prose, used in the materialized gate's body. §3.1: the description IS the process. */
   description: string;
+  /**
+   * The same thing, said in ≤100 characters, because that is GitHub's hard cap on a label
+   * description and it rejects the whole write rather than truncating. Kept separate from
+   * `description` rather than derived from it: a machine-truncated sentence loses its verb and
+   * stops being the process, which is the only reason the label carries a description at all.
+   */
+  labelDescription: string;
   /**
    * The body a materialized gate opens with.
    *
@@ -43,6 +50,7 @@ export const GATES: Record<WorkType, GateSpec[]> = {
     {
       n: 1, verb: "design",
       description: "Gate 1 — the design: problem, desired behavior, solution shape, alternatives, non-goals. Closed means accepted.",
+      labelDescription: "Gate 1 — the design: problem, behavior, solution shape, alternatives. Closed = accepted.",
       seed: [
         "### Problem",
         "<!-- What is wrong or missing, in plain English. Not the solution. -->",
@@ -61,6 +69,7 @@ export const GATES: Record<WorkType, GateSpec[]> = {
     {
       n: 2, verb: "plan",
       description: "Gate 2 — the implementation plan: files, build order, interfaces, blockers, and the BDD scenarios to write. Closed means accepted.",
+      labelDescription: "Gate 2 — the plan: files, build order, interfaces, scenarios. Closed = accepted.",
       seed: [
         "### Files to create / modify",
         "",
@@ -80,6 +89,7 @@ export const GATES: Record<WorkType, GateSpec[]> = {
     {
       n: 3, verb: "impl",
       description: "Gate 3 — the build: scenarios RED, implement to GREEN, refactor under green. Closing it closes the work item.",
+      labelDescription: "Gate 3 — the build: scenarios RED, implement to GREEN, refactor. Closes the work item.",
       seed: [
         "### RED",
         "<!-- The scenarios from gate 2, written as failing specs. Link the commit. -->",
@@ -95,6 +105,7 @@ export const GATES: Record<WorkType, GateSpec[]> = {
     {
       n: 1, verb: "diagnose",
       description: "Gate 1 — the diagnosis: reproduction, root cause, blast radius. For a hotfix this also carries the warrant. Closed means understood.",
+      labelDescription: "Gate 1 — the diagnosis: reproduction, root cause, blast radius. Closed = understood.",
       seed: [
         "### Reproduction",
         "<!-- Exact steps or inputs. If it cannot be reproduced, it cannot be diagnosed. -->",
@@ -112,6 +123,7 @@ export const GATES: Record<WorkType, GateSpec[]> = {
     {
       n: 2, verb: "fix",
       description: "Gate 2 — the fix, spec-first: the regression test fails before and passes after. Closing it closes the work item.",
+      labelDescription: "Gate 2 — the fix, spec-first: the regression test fails before, passes after.",
       seed: [
         "### The regression test",
         "<!-- Written FIRST, from the reproduction above. Failing before, passing after — that is what",
@@ -129,6 +141,7 @@ export const GATES: Record<WorkType, GateSpec[]> = {
     {
       n: 1, verb: "research",
       description: "Gate 1 — the charter: the question (which must be able to come back \"no\"), the decision it informs, the method, the scope bound, and what happens to any code produced.",
+      labelDescription: "Gate 1 — the charter: the question, the decision it informs, the method, the bound.",
       seed: [
         "### The question",
         "<!-- Phrased so that \"no\" is a real possible answer. A question that can only come back yes",
@@ -149,6 +162,7 @@ export const GATES: Record<WorkType, GateSpec[]> = {
     {
       n: 2, verb: "evaluate",
       description: "Gate 2 — the verdict: what was done, the answer, its limits, and the disposition. A verdict is required to close, because the verdict IS the deliverable.",
+      labelDescription: "Gate 2 — the verdict: the answer, its limits, the disposition. The verdict IS the work.",
       seed: [
         "### What was done",
         "",
@@ -202,19 +216,26 @@ export function gateOf(labels: string[]): { type: WorkType; n: number } | null {
   return null;
 }
 
+/**
+ * GitHub's hard cap on a label description. It rejects the entire write with a 422 rather than
+ * truncating, so an over-long description is not a cosmetic problem — it means the label is never
+ * created, and `bootstrap` leaves the repo half-provisioned.
+ */
+export const MAX_LABEL_DESCRIPTION = 100;
+
 /** The "what" axis (PLAYBOOK §3.1). Portable verbatim — the descriptions are the process. */
 export const TYPE_LABELS: LabelSpec[] = [
-  { name: "improvement", color: "0e8a16", description: "Work that makes the product better: features, refactors, performance, debt. Three gates: design → plan → impl." },
+  { name: "improvement", color: "0e8a16", description: "Work that makes the product better: features, refactors, perf, debt. Gates: design → plan → impl." },
   { name: "bugfix", color: "d73a4a", description: "A defect in behavior that already exists. Two gates: diagnose → fix." },
-  { name: "experiment", color: "a2eeef", description: "Work whose deliverable is a finding, not a shippable artifact. Two gates: research → evaluate. Never milestoned." },
-  { name: "hotfix", color: "b60205", description: "A bugfix in released behavior that cannot wait: bounded, warranted, on its own patch milestone. Never alone — always with `bugfix`." },
-  { name: "epic", color: "6f42c1", description: "Umbrella tracking issue; decomposes via native sub-issues. Not a work type, and never carries gates of its own." },
+  { name: "experiment", color: "a2eeef", description: "Deliverable is a finding, not a shippable artifact. Gates: research → evaluate. Never milestoned." },
+  { name: "hotfix", color: "b60205", description: "Urgent bugfix in released behavior, on its own patch milestone. Never alone — always with `bugfix`." },
+  { name: "epic", color: "6f42c1", description: "Umbrella tracking issue; decomposes via sub-issues. Not a work type, and never carries gates." },
   { name: "release-gate", color: "b60205", description: "Blocks the tag: this milestone cannot be released until it is closed." },
 ];
 
 /** The seven gate labels, generated from `GATES` so the two can never disagree. */
 export const GATE_LABELS: LabelSpec[] = WORK_TYPES.flatMap((t) =>
-  GATES[t].map((g) => ({ name: gateLabel(t, g.n), color: "ededed", description: g.description })),
+  GATES[t].map((g) => ({ name: gateLabel(t, g.n), color: "ededed", description: g.labelDescription })),
 );
 
 /** Everything `bootstrap` creates, minus the dynamic `surface:*` set. */
