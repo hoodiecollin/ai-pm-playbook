@@ -252,6 +252,10 @@ indistinguishable from work you could defer — and they are the exact opposite.
 query (`--label release-gate --state open`) instead of a memory, and it gives the tag workflow
 something mechanical to check.
 
+**"Something to check" is not the same as something that blocks** — wiring the query somewhere it
+can actually fail the tag is its own decision, and §5.5 is about making it deliberately. A gate
+reported beside the release rather than in front of it is a notification.
+
 File one the moment you *knowingly* defer a release obligation — the deferral is precisely when
 it is most likely to be forgotten, because everything still works locally.
 
@@ -379,6 +383,103 @@ Two rules make the choice legible once it is made:
    branch therefore leaves its issue **open** however the body is written, and it must be closed
    by hand. Teams adopting an integration branch discover this by finding a milestone full of
    merged work that still reads as unfinished.
+
+### 5.5 Enforcement points — a rule needs a place where it can fail
+
+Everything in §5 defines rules: the milestone cannot be tagged while a `release-gate` is open, the
+ledger's rows must be current, the trunk must stay releasable. Each is stated as an obligation.
+**None of that says where the obligation is checked**, and a rule with no enforcement point is
+enforced by memory at the exact moment memory is worst — mid-release, under pressure, by whoever
+is holding the tag.
+
+Naming the enforcement point is a separate act from writing the rule, and it is the one that gets
+skipped, because the rule feels finished once it is written down.
+
+#### A report is not a gate
+
+The failure is easy to miss because the output *looks* like enforcement. A step lists the open
+`release-gate` issues; the log shows them; everyone reads it. But if the step cannot fail the
+thing it guards, it is a notification, and it will be scrolled past on the day it matters.
+
+Two shapes produce this, and both are things a careful person does on purpose:
+
+- **The step is deliberately non-failing.** A check that runs on every push to trunk *must not*
+  fail on an open gate — mid-cycle gates are normal, and a job that is red for a whole cycle stops
+  being read (the same argument §5.2 makes for keeping the reclose off the integration branch).
+  So it is written `if: always()`, correctly for where it sits. What is missing is a *second*
+  invocation at the tag, where an open gate is not normal at all.
+- **The check runs beside the thing it guards, not in front of it.** On GitHub, two workflows
+  triggered by the same event are independent: a `release-gate` check triggered by a tag push
+  **cannot** block a release workflow triggered by the same tag push. It runs in parallel while
+  artifacts build and publish. This is the trap to watch for, because "a workflow that runs on the
+  tag" is the obvious reading of "a tag gate" and it is wrong.
+
+So: **when you wire a gate, state what it is capable of failing.** If the answer is "nothing," it
+is a report — keep it, label it as one, and put the gate somewhere else.
+
+#### Put the check where the irreversible step is
+
+Most CI accumulates on pull requests, because that is where checks are cheap to add and cheap to
+re-run. But a PR can be redone; a merge can be reverted. **A published version cannot be
+unpublished, and a consumed tag cannot be recalled.** Registries refuse re-uploads of a version
+that already exists, so an incorrect release is corrected by *burning a version*, never by undoing
+one.
+
+Checks placed only on PRs are therefore concentrated where mistakes are recoverable and absent
+where they are not. Ask of each gate: *what is the last moment this could still fail usefully?*
+That is where it belongs. For a release, the honest options are:
+
+1. **Fold the check into the release tool's own pre-release hook**, so it runs inside the pipeline
+   it guards rather than beside it. Best when the tool supports it.
+2. **Make it a required status check** via branch/tag protection rules, so the platform enforces
+   ordering instead of your workflow graph.
+3. **Accept parallel-and-loud** — the check races the release but fails visibly, and the release is
+   reviewed before anything is announced. Legitimate, but it is a *convention* about announcement,
+   not a mechanism, so write down which one you chose and why.
+
+Choosing (3) unknowingly is the failure. Choosing (3) deliberately is fine.
+
+#### A continuously-true claim needs a continuously-run check
+
+"Trunk is releasable" is not a property of a commit. It is a property of the **relationship**
+between the repo and everything outside it — the registry, the runner's default toolchain, the
+advisory database, an expiring credential. All of those change with **no commit from you**.
+
+A check triggered only by `push` therefore confirms the claim against evidence that may predate
+the change, and it can sit green for an entire cycle on a run whose conclusion has expired. That
+is the same stale-evidence failure as the ledger's absent row in §5.2, one level up: the badge
+does not distinguish *verified now* from *verified once*.
+
+**Add a `schedule:` to any check that validates state you do not control.** The reclose, the
+advisory scan, and the credential-expiry check are all in this class. A push trigger answers "did
+*we* break it"; only a schedule answers "is it *still* true."
+
+#### Where a generator writes half your pipeline, the seam is unowned
+
+Release tooling that generates CI (cargo-dist, goreleaser, changesets, and friends) usually ships a
+`--check` that keeps *its* file honest. Nothing keeps yours honest, and the two are not
+independent: the moment you add a custom job that consumes what the generated jobs produce, you
+have a **compatibility constraint spanning a file that updates itself and a file that does not**.
+
+That seam has the worst possible properties. It is exercised only during a real release, it sits
+downstream of the irreversible step, and it is invisible to the generator's own check. When you add
+a custom job, **record the coupling in a comment at the coupling point** — not in a design doc —
+so the next person to bump a version knows what it must stay compatible with.
+
+#### Fail-closed needs a resume path, or it is only fail-stuck
+
+Publish steps should fail closed: a release that reports success with a channel missing is worse
+than one that stops. But fail-closed is only half a design. The other half is what happens *next*,
+and it is usually never specified, because the failure is assumed to be all-or-nothing.
+
+It often is not. A publish that uploads several artifacts can fail partway, and registries reject
+re-uploading what already landed — so the naive retry fails on exactly the files that succeeded,
+and the recovery path written for "nothing was published" does not cover "some of it was."
+
+**Make the retry idempotent rather than making the failure impossible.** Then say plainly what
+idempotence costs: a step that tolerates already-present artifacts can no longer distinguish
+*resuming* from *re-running against a version that already shipped*, so the gate deciding when it
+may run at all is what keeps that safe, and it stays strict.
 
 ---
 
@@ -608,6 +709,11 @@ Standing rules that keep Issues the single, always-current source of truth:
   gate's output and a stale claim there is built on rather than caught.
 - **Keep the release-gate ledger current as you go** (§5.2). When a change touches an
   independently versioned asset, set that asset's row in the same pass — not at tag time.
+- **When you write a rule, name where it fails** (§5.5). A rule stated in `CONTRIBUTING.md` with no
+  enforcement point is enforced by whoever remembers it, under the most pressure, at the least
+  recoverable step. Before calling a gate wired, say out loud what it is capable of failing — and
+  if the honest answer is "nothing," it is a report, which is fine as long as it is labeled one and
+  the gate lives somewhere else.
 - **Prioritize on engineering merit, not demand.** Never justify building or deferring on "demand,"
   "usage," or "when users want it" — for a pre-launch product those signals *don't exist*, so
   leaning on them smuggles in data you don't have. Justify on **scope, risk, foundational
@@ -647,6 +753,13 @@ Standing rules that keep Issues the single, always-current source of truth:
 9. **Wire the gates into CI** so the invariants survive the person who set them up:
    `check` on pull requests, `release-check <vX.Y.Z>` before a tag, and — if you keep an
    integration branch (§5.3) — `scope-check <pr>` on PRs targeting it.
+9b. **For each gate you just wired, name what it can fail** (§5.5) — "before a tag" in step 9 is
+   doing more work than it looks. A `release-check` job triggered by the same tag push as your
+   release workflow runs *beside* it and blocks nothing; it needs a pre-release hook, a required
+   status check, or a written acknowledgement that it is parallel-and-loud. Also give a
+   `schedule:` to every check validating state you do not control (the reclose, advisories,
+   credential expiry) — those go stale with no commit from you, and a push-triggered badge cannot
+   tell *verified now* from *verified once*.
 
 ---
 
@@ -676,6 +789,16 @@ Standing rules that keep Issues the single, always-current source of truth:
   docs" (§5.2).
 - **A release obligation filed as ordinary `tech-debt`** → it reads as deferrable when it is the
   opposite; label it `release-gate` so "can we tag?" is a query, not a memory (§5.2).
+- **A gate that reports instead of failing** → a step that runs `if: always()`, or a workflow that
+  races the release rather than preceding it, enforces nothing while looking like it does. State
+  what each gate can fail; if the answer is "nothing," it is a report (§5.5).
+- **Checks only on pull requests, none on the tag** → they are concentrated where mistakes are
+  recoverable and absent where they are not. A version cannot be unpublished (§5.5).
+- **A readiness check with no `schedule:`** → "trunk is releasable" depends on the registry, the
+  runner default, and the advisory database, none of which produce a commit. Push-triggered, the
+  badge can sit green all cycle on expired evidence (§5.5).
+- **A fail-closed publish with no idempotent retry** → correct until it fails *partway*, at which
+  point the recovery path written for "nothing shipped" fails on what already did (§5.5).
 - **A version-named integration branch, or one per upcoming version** → the publish gap is defined
   against a single registry and only one cycle can be in flight; a version in the branch name also
   encodes the schedule a second time, competing with the milestone (§5.3). One integration branch,
