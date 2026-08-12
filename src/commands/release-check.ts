@@ -68,6 +68,10 @@ export async function releaseCheck(args: Args, repoRoot: string, milestone?: str
     console.log("Reminder (§5.2): green in-tree is not proof of releasable. If this product publishes");
     console.log("artifacts its own built output depends on, run the outside-repo reclose — from a clean");
     console.log("directory, with the PUBLISHED tool: install → scaffold → generate → build.");
+    console.log("");
+    console.log("Reminder (§5.5): if this ran in its own tag-triggered workflow, it did NOT gate the");
+    console.log("release — same-event workflows run in parallel. To block, it must be a job the release");
+    console.log("jobs `needs:`, a pre-release hook, or a required status check.");
     return 0;
   }
   return 1;
