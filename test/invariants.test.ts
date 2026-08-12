@@ -217,6 +217,46 @@ describe("currentCycle — the cycle in flight (§5)", () => {
       { title: "v0.4.0", state: "open" },
     ])).toBe("v0.3.0");
   });
+
+  // A patch on an already-shipped line sorts BELOW the cycle, so the naive "lowest open" reading
+  // hands the gate a cycle that is behind the work and fails every legitimate PR until the patch
+  // milestone closes. The line's closed milestone is what marks it as shipped.
+  test("skips a patch milestone on a line that already shipped", () => {
+    expect(currentCycle([
+      { title: "v1.2.0", state: "closed" },
+      { title: "v1.2.1", state: "open" },
+      { title: "v1.3.0", state: "open" },
+    ])).toBe("v1.3.0");
+  });
+  test("skips every patch on a shipped line, not just the first", () => {
+    expect(currentCycle([
+      { title: "v1.2.0", state: "closed" },
+      { title: "v1.2.1", state: "closed" },
+      { title: "v1.2.2", state: "open" },
+      { title: "v1.3.0", state: "open" },
+    ])).toBe("v1.3.0");
+  });
+  test("a patch on an UNSHIPPED line is still the cycle", () => {
+    expect(currentCycle([
+      { title: "v1.5.0", state: "open" },
+      { title: "v1.5.1", state: "open" },
+    ])).toBe("v1.5.0");
+  });
+  test("a short title shares a line with its patches", () => {
+    expect(currentCycle([
+      { title: "v1", state: "closed" },
+      { title: "v1.0.1", state: "open" },
+      { title: "v1.1.0", state: "open" },
+    ])).toBe("v1.1.0");
+  });
+  // Deriving null here would disarm PM008 entirely and tell you to open a milestone you already
+  // have. Nothing can be later than the highest open milestone, so falling back is free.
+  test("falls back to the lowest open when EVERY open milestone is on a shipped line", () => {
+    expect(currentCycle([
+      { title: "v1.2.0", state: "closed" },
+      { title: "v1.2.1", state: "open" },
+    ])).toBe("v1.2.1");
+  });
 });
 
 describe("releaseBlockers — can we tag? (§5.2)", () => {
