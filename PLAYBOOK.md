@@ -326,15 +326,28 @@ PRs pass, and correctly so — work with no issue cannot be next-cycle work, bec
 is *defined* by carrying that milestone. The only thing the rule can fire on is the thing it exists
 to catch.
 
-**Derive the cycle in flight; never configure it.** It is the lowest open core milestone by
-version order. No constant to update, nothing that can drift from the actual spine, and it
-advances on its own when a milestone closes.
+**Derive the cycle in flight; never configure it.** It is the lowest open core milestone **whose
+release line has not already shipped** — where a line is `major.minor`, so `v1.2.0` and `v1.2.1`
+share one, and a closed milestone on the line is what marks it shipped. No constant to update,
+nothing that can drift from the actual spine, and it advances on its own when a milestone closes.
 
-That derivation has exactly one prerequisite, and it is worth stating because it is easy to skip:
-**closing the milestone must be part of the release ritual**, alongside publishing and tagging. A
-milestone left open after its tag freezes the gate and starts blocking legitimate next-cycle work
-— a loud, self-announcing failure rather than a silent one, which is the right direction to fail
-in. `release-check` returning clean and the milestone closing are the same moment.
+The line clause is not a refinement; without it the gate inverts. **A patch on a released version
+opens a milestone that sorts *below* the cycle** — `v1.2.1` while `v1.3.0` is in flight — so a plain
+"lowest open" reading names the patch as the cycle and then fails every legitimate PR on the
+integration branch, for as long as the patch milestone stays open. The check that exists to keep
+next-cycle work out ends up blocking this-cycle work instead, and the only workaround is to stop
+tracking patches.
+
+Note that both halves rest on **one** prerequisite, which is worth stating because it is easy to
+skip: **closing the milestone must be part of the release ritual**, alongside publishing and
+tagging. It is what advances the cycle, and it is also the evidence a line has shipped — the line
+clause reads exactly the same signal, for a second question.
+
+So a milestone left open after its tag still freezes the gate and still starts blocking legitimate
+next-cycle work. The line clause does not rescue it, deliberately: nothing on that line is closed,
+so there is nothing to say it shipped. That is a loud, self-announcing failure rather than a silent
+one, which is the right direction to fail in. `release-check` returning clean and the milestone
+closing are the same moment.
 
 `pm-playbook scope-check` implements this as **PM008**. Wire it on pull requests targeting the
 integration branch.

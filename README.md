@@ -148,8 +148,8 @@ or behind a required status check. Running it parallel-and-loud is a legitimate 
 that way *by accident* is the one to avoid.
 
 And on pull requests targeting the integration branch (§5.3) — this refuses to land next-cycle work
-on `develop`. The cycle in flight is derived from the lowest open core milestone, so there is no
-constant to keep updated:
+on `develop`. The cycle in flight is derived from the lowest open core milestone on an unreleased
+line, so there is no constant to keep updated and a patch milestone does not hijack it:
 
 ```yaml
 - run: npx @hoodiecollin/pm-playbook scope-check ${{ github.event.pull_request.number }}

@@ -72,21 +72,43 @@ export function compareMilestones(a: string, b: string): number {
   return 0;
 }
 
+/** The `major.minor` release line a core milestone belongs to — `v1.2.1` and `v1.2.0` share one. */
+function releaseLine(title: string): string | null {
+  const v = parseVersion(title);
+  return v ? `${v[0] ?? 0}.${v[1] ?? 0}` : null;
+}
+
 /**
- * The cycle in flight (§5.3): the lowest open core milestone by version order.
+ * The cycle in flight (§5.3): the lowest open core milestone whose release line has not already
+ * shipped.
  *
  * DERIVED, never configured. A constant would be one more thing that drifts from the actual spine;
  * this advances on its own the moment a milestone closes. That is also its one prerequisite —
  * closing the milestone must be part of the release ritual. A milestone left open after its tag
  * freezes the cycle here and starts blocking legitimate next-cycle work, loudly, which is the
  * right direction to fail in.
+ *
+ * The line clause is why a *patch* milestone does not hijack the gate. Patching a released version
+ * means opening a milestone that sorts BELOW the cycle, so a plain "lowest open" would name it and
+ * fail every legitimate PR for as long as it stayed open. A closed milestone on the same line is
+ * the evidence that line shipped — the same release-ritual prerequisite, used for a second
+ * question. Note this deliberately does NOT rescue the open-after-tag case above: nothing on that
+ * line is closed, so it still freezes, still loudly.
+ *
+ * When every open milestone is on a shipped line, fall back to the lowest of them rather than
+ * returning null — null disarms PM008 entirely, and nothing can be later than the highest open
+ * milestone anyway. Null stays reserved for a spine with nothing open at all.
  */
 export function currentCycle(milestones: { title: string; state: string }[]): string | null {
-  const open = milestones
-    .filter((m) => m.state.toLowerCase() === "open" && isCoreMilestone(m.title))
+  const core = milestones.filter((m) => isCoreMilestone(m.title));
+  const shipped = new Set(
+    core.filter((m) => m.state.toLowerCase() === "closed").map((m) => releaseLine(m.title)),
+  );
+  const open = core
+    .filter((m) => m.state.toLowerCase() === "open")
     .map((m) => m.title)
     .sort(compareMilestones);
-  return open[0] ?? null;
+  return open.find((t) => !shipped.has(releaseLine(t))) ?? open[0] ?? null;
 }
 
 /**
