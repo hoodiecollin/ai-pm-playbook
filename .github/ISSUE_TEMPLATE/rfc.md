@@ -6,7 +6,7 @@ labels: rfc, idea
 ---
 
 <!--
-  Gate 1 of the design → plan → spec doctrine (PLAYBOOK §4.1).
+  Gate 1 of the design → plan → spec doctrine (PLAYBOOK §9).
   This is SOLUTION-shaped, not CODE-shaped: describe behavior and the shape of the
   solution. File lists / build order / signatures belong in the IMPLEMENTATION-PLAN (Gate 2),
   not here. Do NOT commit a proposal-*.md file — this issue IS the design.

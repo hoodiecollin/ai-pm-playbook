@@ -6,7 +6,7 @@ labels: plan-next
 ---
 
 <!--
-  Gate 2 of the design → plan → spec doctrine (PLAYBOOK §4.1).
+  Gate 2 of the design → plan → spec doctrine (PLAYBOOK §9).
   Precondition: an ACCEPTED design-doc (Gate 1) exists — link it below.
   This is CODE-shaped: it turns the accepted design into an ordered build.
   Its job is to surface EXECUTION gotchas before coding starts.
