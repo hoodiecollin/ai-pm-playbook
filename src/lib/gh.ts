@@ -11,7 +11,11 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { run, tryRun } from "./sh.js";
+import { gateOf } from "./model.js";
 import type { BacklogEntity, Comment, EntityKind } from "./backlog/model.js";
+// Type-only, so the gh ↔ invariants pairing stays a compile-time relationship and not an import
+// cycle — invariants.ts already reaches back here the same way for `Issue`.
+import type { Parentage } from "./invariants.js";
 
 export interface Issue {
   number: number;
@@ -113,6 +117,12 @@ export async function listMilestones(repo: string): Promise<Milestone[]> {
 }
 
 /** Every label defined on the repo, by name. */
+/** One issue's body. Used only to recover an unlinked gate, so it is never on a hot path. */
+export async function issueBody(repo: string, number: number): Promise<string> {
+  return (await run("gh", ["api", `repos/${repo}/issues/${number}`, "--jq", ".body // \"\""])).trim();
+}
+
+/** Every label defined on the repo, by name. */
 export async function listLabels(repo: string): Promise<string[]> {
   const out = await run("gh", ["label", "list", "--repo", repo, "--limit", "200", "--json", "name"]);
   return (JSON.parse(out || "[]") as { name: string }[]).map((l) => l.name);
@@ -205,6 +215,98 @@ export async function pullRequestScope(repo: string, pr: number): Promise<PullRe
   return { number: node.number, title: node.title, baseRefName: node.baseRefName, closing, mentioned };
 }
 
+/**
+ * Structural parentage from the network.
+ *
+ * `listIssues` shells out to `gh issue list`, which cannot return a parent at any flag combination.
+ * Without this, the networked tier of `check` calls `checkIssues` with no parentage and every
+ * structural rule silently does not run — PM105, and under §9's gate model PM011 through PM016 as
+ * well. A rule that passes by not running is the §5.5 failure, so the fetch exists to close it.
+ *
+ * Deliberately **all states**. A closed gate still counts toward its parent's gate set and a closed
+ * parent is still mis-modelled if it holds children it should not, so scoping this the way the
+ * linted issue set is scoped would disarm exactly the rules it exists to arm. `invariants.ts` makes
+ * the same argument for PM105; this is that argument, applied at the fetch.
+ *
+ * Bodies and comments are omitted — nothing structural reads them, and fetching them would make
+ * every `check` pay `fetchBacklog` prices for a graph of numbers.
+ */
+interface RawParentageNode {
+  number: number;
+  title: string;
+  state: string;
+  url: string;
+  labels: { nodes: { name: string }[] } | null;
+  milestone: { title: string } | null;
+  parent: { number: number } | null;
+}
+
+const PARENTAGE_QUERY = `
+  query($owner:String!,$name:String!,$after:String){
+    repository(owner:$owner,name:$name){
+      issues(first:100, states:[OPEN,CLOSED], after:$after){
+        pageInfo{ hasNextPage endCursor }
+        nodes{
+          number title state url
+          labels(first:50){ nodes{ name } }
+          milestone{ title }
+          parent{ number }
+        }
+      }
+    }
+  }`;
+
+/** Pure half of `fetchParentage`, so the mapping is testable without a network. */
+export function toParentage(nodes: RawParentageNode[]): Parentage {
+  const all = new Map<number, Issue>();
+  const parentOf = new Map<number, number>();
+
+  for (const n of nodes) {
+    all.set(n.number, {
+      number: n.number,
+      title: n.title,
+      state: n.state,
+      url: n.url,
+      labels: (n.labels?.nodes ?? []).map((l) => l.name),
+      milestone: n.milestone?.title ?? null,
+    });
+    if (n.parent) parentOf.set(n.number, n.parent.number);
+  }
+
+  return { parentOf, all };
+}
+
+/**
+ * Every issue's parentage and labels, both states.
+ *
+ * Unlike `epicSubIssueCounts` this does **not** degrade to null on failure. That one backs an
+ * advisory rule, so skipping it costs a warning; this one backs error-severity structural rules,
+ * and returning "no parentage" on a failed fetch would report a clean run over an unlinted tree.
+ * Failing loudly is the only honest option.
+ */
+export async function fetchParentage(repo: string): Promise<Parentage> {
+  const [owner, name] = repo.split("/");
+  const nodes: RawParentageNode[] = [];
+  let after: string | null = null;
+
+  for (;;) {
+    const args = ["api", "graphql", "-f", `query=${PARENTAGE_QUERY}`, "-F", `owner=${owner}`, "-F", `name=${name}`];
+    if (after) args.push("-F", `after=${after}`);
+    const res = await run("gh", args);
+
+    const page = JSON.parse(res)?.data?.repository?.issues as
+      | { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: RawParentageNode[] }
+      | undefined;
+    if (!page) throw new Error(`${repo}: could not read issue parentage — check the token's repository scope.`);
+
+    nodes.push(...page.nodes);
+    if (!page.pageInfo.hasNextPage) break;
+    after = page.pageInfo.endCursor;
+  }
+
+  return toParentage(nodes);
+}
+
 interface RawComment {
   databaseId: number;
   author: { login: string } | null;
@@ -261,14 +363,19 @@ function toComment(c: RawComment): Comment {
 /**
  * Map one GraphQL issue node onto a backlog entity.
  *
- * Kind is *derived*, never declared: a `parent` makes it a sub-issue, the `epic` label makes it an
- * epic, everything else is standalone. That is what makes "a standalone issue has no sub-issues"
- * true by construction rather than by convention (§7.1).
+ * Kind is *derived*, never declared: a `{type}:gate-{n}` label makes it a gate, otherwise a `parent`
+ * makes it a sub-issue, the `epic` label makes it an epic, and everything else is standalone. That
+ * is what makes "a standalone issue has no sub-issues" true by construction rather than by
+ * convention (§7.1).
+ *
+ * Gate is tested first and deliberately: a gate always has a parent, so the sub-issue test would
+ * swallow it and file it under `subissues/`, collapsing the third level back into the second.
  */
 export function toBacklogEntity(node: RawBacklogNode): BacklogEntity {
   const labels = (node.labels?.nodes ?? []).map((l) => l.name);
   const parent = node.parent?.number ?? null;
-  const kind: EntityKind = parent !== null ? "subissue" : labels.includes("epic") ? "epic" : "standalone";
+  const kind: EntityKind =
+    gateOf(labels) !== null ? "gate" : parent !== null ? "subissue" : labels.includes("epic") ? "epic" : "standalone";
   return {
     number: node.number,
     kind,
