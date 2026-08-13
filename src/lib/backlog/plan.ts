@@ -116,6 +116,62 @@ export function planSync(
   return plan;
 }
 
+/** Why `comment` refused. Ordered as they are checked: presence first, then content. */
+export type CommentRefusal = "no-base" | "unknown" | "gone" | "remote-moved" | "local-pending";
+
+export type CommentPlan =
+  | { ok: true; target: BacklogEntity }
+  | { ok: false; refusal: CommentRefusal };
+
+/**
+ * May we post a comment on `target`?
+ *
+ * Adding a comment cannot violate an invariant and cannot overwrite anyone's work, so almost none of
+ * `push`'s machinery applies. What is left is entirely about **when to refuse**, and the whole of
+ * that judgement lives here rather than in the command, so it is testable without a network.
+ *
+ * Two refusals carry the weight:
+ *
+ *   - **`remote-moved`** is "re-read before you reply." The thread moved since our last pull, so the
+ *     copy the author composed against is stale and the reply may be answering something that
+ *     changed. The common case is that someone else commented, which is exactly when re-reading is
+ *     the point rather than friction.
+ *   - **`local-pending`** is the reason this command exists at all. Posting a comment on an issue
+ *     with an unpushed body edit moves the remote projection; the edit already moved the local one;
+ *     so the next `pull` classifies the issue as a conflict, sets the body aside under `conflicts/`
+ *     and restores remote truth over it. The author's edit is demoted by their own comment, through
+ *     a path that looks exactly like a teammate's race. This is unwarnable from outside the mirror,
+ *     which is why `gh issue comment` cannot be the answer.
+ *
+ * Presence resolves before content, matching `planSync`. Absence from `base` — never pulled — is the
+ * `orphaned` rule applied to one issue: the number refers to nothing we know, so a typo would
+ * otherwise comment on a stranger's issue. It is deliberately NOT keyed on the local tree, because
+ * deleting a local file means nothing (`store.ts`).
+ */
+export function planComment(
+  base: Map<number, string>,
+  local: Map<number, BacklogEntity>,
+  remote: Map<number, BacklogEntity>,
+  target: number,
+): CommentPlan {
+  if (base.size === 0) return { ok: false, refusal: "no-base" };
+
+  const baseHash = base.get(target);
+  if (baseHash === undefined) return { ok: false, refusal: "unknown" };
+
+  const remoteEntity = remote.get(target);
+  if (!remoteEntity) return { ok: false, refusal: "gone" };
+
+  if (projectionHash(remoteEntity) !== baseHash) return { ok: false, refusal: "remote-moved" };
+
+  const localEntity = local.get(target);
+  if (localEntity && projectionHash(localEntity) !== baseHash) {
+    return { ok: false, refusal: "local-pending" };
+  }
+
+  return { ok: true, target: remoteEntity };
+}
+
 /**
  * What `pull` writes for an entity with a pending local edit: our fields, the remote's thread.
  *

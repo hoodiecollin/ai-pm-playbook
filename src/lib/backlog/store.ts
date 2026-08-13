@@ -97,7 +97,7 @@ export function writeEntity(root: string, e: BacklogEntity, ancestors: BacklogEn
  * rather than throwing: `entityDir` will report the mismatch with the entity's own number, which is
  * a far more useful error than one raised here with no context.
  */
-function ancestorsOf(e: BacklogEntity, entities: Map<number, BacklogEntity>): BacklogEntity[] {
+export function ancestorsOf(e: BacklogEntity, entities: Map<number, BacklogEntity>): BacklogEntity[] {
   const chain: BacklogEntity[] = [];
   let current = e;
   const seen = new Set<number>([e.number]);

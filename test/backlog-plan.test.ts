@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { mergePending, planSync } from "../src/lib/backlog/plan.js";
+import { mergePending, planComment, planSync } from "../src/lib/backlog/plan.js";
 import { projectionHash } from "../src/lib/backlog/project.js";
 import type { BacklogEntity } from "../src/lib/backlog/model.js";
 
@@ -174,6 +174,79 @@ describe("a pending local edit keeps our fields and the remote's thread", () => 
     expect(projectionHash(local)).not.toBe(projectionHash(remote));
 
     expect(projectionHash(mergePending(local, remote))).toBe(projectionHash(remote));
+  });
+});
+
+/*
+ * #4. Posting a comment is refused rather than attempted whenever the local copy cannot be trusted
+ * to be what the author read. All of the judgement lives here so it is testable without a network:
+ * `comment.ts` reads a file, prints, and calls this.
+ *
+ * The refusal that justifies the command existing is `local-pending`. Posting a comment on an issue
+ * with an unpushed body edit moves the remote projection, both sides then differ from base, and the
+ * next `pull` files the author's edit as a conflict — down a path indistinguishable from a
+ * teammate's race, caused by their own comment.
+ */
+describe("refusing to comment on something we cannot trust we have read", () => {
+  const at = entity(9, "as pulled\n");
+  const moved = entity(9, "changed upstream\n");
+  const edited = entity(9, "edited locally, not pushed\n");
+
+  test("no base snapshot at all", () => {
+    expect(planComment(new Map(), map(at), map(at), 9)).toEqual({ ok: false, refusal: "no-base" });
+  });
+
+  test("a number we have never pulled — the orphan rule, applied to one issue", () => {
+    // Keyed on the base, NOT the local tree: deleting a local file means nothing (`store.ts`), so a
+    // missing file must not refuse. Never having pulled it is what makes the number meaningless.
+    expect(planComment(baseOf(at), map(at), map(at, entity(77, "a stranger\n")), 77))
+      .toEqual({ ok: false, refusal: "unknown" });
+  });
+
+  test("pulled once, since deleted or transferred away", () => {
+    expect(planComment(baseOf(at), map(at), new Map(), 9)).toEqual({ ok: false, refusal: "gone" });
+  });
+
+  test("the thread moved since our last pull — re-read before replying", () => {
+    expect(planComment(baseOf(at), map(at), map(moved), 9)).toEqual({ ok: false, refusal: "remote-moved" });
+  });
+
+  test("a pending local edit, which our own comment would turn into a conflict", () => {
+    expect(planComment(baseOf(at), map(edited), map(at), 9)).toEqual({ ok: false, refusal: "local-pending" });
+  });
+
+  test("absent locally is fine — a deleted file is not an edit", () => {
+    expect(planComment(baseOf(at), new Map(), map(at), 9)).toEqual({ ok: true, target: at });
+  });
+
+  test("all three agree, and the target returned is the remote", () => {
+    const plan = planComment(baseOf(at), map(at), map(at), 9);
+    expect(plan).toEqual({ ok: true, target: at });
+    if (plan.ok) expect(plan.target).toBe(map(at).get(9) ?? at);
+  });
+
+  test("a gate resolves like any other kind — it is the most common target", () => {
+    const gate = { ...entity(16, "gate body\n"), kind: "gate" as const, parent: 4, labels: ["improvement:gate-1"] };
+    expect(planComment(baseOf(gate), map(gate), map(gate), 16)).toEqual({ ok: true, target: gate });
+  });
+
+  describe("precedence — presence before content, as planSync does it", () => {
+    test("never pulled beats everything, even a moved remote", () => {
+      expect(planComment(baseOf(at), map(at), map(at, moved), 77).ok).toBe(false);
+      expect(planComment(baseOf(at), new Map(), map(entity(77, "x\n")), 77))
+        .toEqual({ ok: false, refusal: "unknown" });
+    });
+
+    test("gone beats a pending local edit", () => {
+      expect(planComment(baseOf(at), map(edited), new Map(), 9)).toEqual({ ok: false, refusal: "gone" });
+    });
+
+    test("a moved remote beats a pending local edit", () => {
+      // Both sides moved. `planSync` would call this a conflict; here the actionable instruction is
+      // to pull, so the remote is named first.
+      expect(planComment(baseOf(at), map(edited), map(moved), 9))
+        .toEqual({ ok: false, refusal: "remote-moved" });
+    });
   });
 });
 

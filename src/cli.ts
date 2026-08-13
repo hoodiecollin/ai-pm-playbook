@@ -17,6 +17,7 @@ import { migrate } from "./commands/migrate.js";
 import { pull } from "./commands/pull.js";
 import { push } from "./commands/push.js";
 import { create } from "./commands/create.js";
+import { comment } from "./commands/comment.js";
 import { ladder } from "./commands/ladder.js";
 import { materialize } from "./commands/materialize.js";
 import { releaseCheck } from "./commands/release-check.js";
@@ -40,6 +41,8 @@ COMMANDS
                           moved. Previews by default; --yes to apply.
   create                  Publish drafts under backlog/new/. Validates labels, milestones and the
                           invariants offline first. Previews by default; --yes to apply.
+  comment <issue>         Post a new comment and re-materialize. Refuses if the issue moved since
+                          your last pull, or has an unpushed local edit. Previews; --yes to post.
   materialize             Create the gate sub-issues for a milestone's work items, as complete
                           sets. Idempotent and resumable. Previews by default; --yes to apply.
   ladder                  Where every work item sits on the commitment ladder (derived from gate
@@ -103,6 +106,12 @@ PUSH OPTIONS
   --yes                   Actually apply. Without it, push only previews.
   --json                  Emit the plan as JSON
 
+COMMENT OPTIONS
+  --body-file <path>      (required) the comment body; bodies never travel by argument
+  --repo owner/name       Target repository (default: detected from the git remote)
+  --yes                   Actually post. Without it, comment only previews.
+  --json                  Emit the result as JSON
+
 CHECK OPTIONS
   --repo owner/name       Target repository (default: detected from the git remote)
   --no-remote             No network, no auth. Lints the materialized backlog if pull has run,
@@ -150,6 +159,8 @@ async function main(): Promise<number> {
       return push(args, repoRoot);
     case "create":
       return create(args, repoRoot);
+    case "comment":
+      return comment(args, repoRoot, args._[1]);
     case "materialize":
       return materialize(args, repoRoot);
     case "ladder":
