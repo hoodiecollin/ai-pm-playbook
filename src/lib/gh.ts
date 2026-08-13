@@ -461,8 +461,10 @@ async function fetchAllComments(
  * Apply a local edit to an issue: title, body, labels and milestone, and nothing else.
  *
  * State is absent on purpose (#1): closing has release-check and milestone consequences, so it
- * stays a command rather than a consequence of editing a word in a file. Comments are absent for
- * the same class of reason — authorship cannot be represented in a file the local agent owns.
+ * stays a command rather than a consequence of editing a word in a file. Comments are absent for a
+ * related but distinct reason — an existing comment is someone else's to edit, and a new one has no
+ * author or id until GitHub assigns them, so it cannot be represented in the tree before it exists.
+ * Adding one is therefore an act rather than an edit: see `addComment` and `pm-playbook comment`.
  *
  * The body goes via a temp file rather than an argument: issue bodies routinely exceed argv limits
  * and contain everything that mangles a shell.
@@ -516,6 +518,31 @@ export async function createIssue(
     const m = /\/issues\/(\d+)\s*$/.exec(out.trim());
     if (!m) throw new Error(`could not read the new issue number from \`gh\`: ${out.trim()}`);
     return Number(m[1]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Post a new comment, returning its id when `gh` reports one.
+ *
+ * The body goes via a temp file for the same reason every other body here does: comment bodies
+ * exceed argv limits and contain everything that mangles a shell.
+ *
+ * **Returns null rather than throwing on an unparseable response**, which is the opposite of
+ * `createIssue` and deliberately so. There, nothing has happened yet when the parse fails, so
+ * throwing is right. Here the comment is already posted, and throwing would report failure for work
+ * that succeeded — and invite a retry that double-posts. The id is used for the success line only.
+ */
+export async function addComment(repo: string, issue: number, body: string): Promise<number | null> {
+  const dir = mkdtempSync(join(tmpdir(), "pm-comment-"));
+  const bodyFile = join(dir, "body.md");
+  writeFileSync(bodyFile, body, "utf8");
+
+  try {
+    const out = await run("gh", ["issue", "comment", String(issue), "--repo", repo, "--body-file", bodyFile]);
+    const m = /#issuecomment-(\d+)\s*$/.exec(out.trim());
+    return m ? Number(m[1]) : null;
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
