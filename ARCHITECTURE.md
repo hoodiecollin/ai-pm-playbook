@@ -87,9 +87,10 @@ Two deliberate choices in that projection:
 - **Not GitHub's `updatedAt`.** It moves for things we do not model, and under a
   refuse-on-any-change rule that produces false conflicts. A projection hash asserts exactly the
   claim we want: *the remote changed in something we own*.
-- **Comments are included.** Gates 1 and 2 live in comments, so a new comment is a change to
-  something we own and must block a stale body push. This fires often on busy issues; being forced
-  to re-read before editing is the intended behavior, not friction. The comment *ordinal* is
+- **Comments are included.** The accepted gate artifact is the gate issue (§9.5), but the thread is
+  where a gate is argued, evidenced and reopened (§9.6) — so a body is very often written in answer
+  to it, and a new comment must block a stale body push. This fires often on busy issues; being
+  forced to re-read before editing is the intended behavior, not friction. The comment *ordinal* is
   excluded, because it is a position rather than an identity.
 
 ### Push refuses, never merges

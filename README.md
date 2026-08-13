@@ -196,8 +196,8 @@ behalf. §11 says so explicitly, and `PM102` still fires on the real thing.
 **Conflicts are refused, never merged.** There is no field-level reconciliation and no local-wins
 flag. A refused edit isn't lost — the next `pull` sets it aside under `conflicts/`, restores remote
 truth to the canonical path, and `PM104` keeps reporting it until you resolve it. The comparison is
-a hash of exactly what we claim to own, comment threads included, since Gates 1 and 2 live in
-comments — so a new comment does block a stale body push, on purpose.
+a hash of exactly what we claim to own, comment threads included, since a gate is argued and
+evidenced in its thread — so a new comment does block a stale body push, on purpose.
 
 The payoff beyond speed: **`check --no-remote` now lints the real backlog.** It used to skip every
 issue-level invariant without a network, so a sandbox or air-gapped CI job could only check doctrine
