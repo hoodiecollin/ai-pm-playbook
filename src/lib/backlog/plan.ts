@@ -116,6 +116,22 @@ export function planSync(
   return plan;
 }
 
+/**
+ * What `pull` writes for an entity with a pending local edit: our fields, the remote's thread.
+ *
+ * `pull` leaves a pending edit on disk rather than overwriting it — that is what makes it safe to
+ * run before `push`. It used to preserve the whole local entity, comments included, which was wrong
+ * in a way that compounded: comments are pull-only, so a locally-read thread is never authoritative,
+ * and writing a corrupted one back re-materialized it at every ordinal it had ever held.
+ *
+ * Taking the remote's thread is a no-op on a healthy mirror, because this branch runs only when the
+ * remote has NOT moved — so its thread already equals the base's, which is what a healthy local copy
+ * holds. On a corrupted one it is the repair, and the phantom edit clears itself on the next pull.
+ */
+export function mergePending(local: BacklogEntity, remote: BacklogEntity): BacklogEntity {
+  return { ...local, comments: remote.comments };
+}
+
 /** Does this plan contain anything that would change either side? */
 export function isEmpty(plan: SyncPlan): boolean {
   return (
