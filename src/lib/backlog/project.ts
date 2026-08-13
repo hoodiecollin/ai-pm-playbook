@@ -6,9 +6,11 @@
  * not model and `push` refuses forever over noise it cannot even represent; omit something a
  * teammate can edit and `push` silently overwrites their work.
  *
- * Notably included: the **whole comment thread**. Gates 1 and 2 live in comments (PLAYBOOK §9), so
- * a new comment is a change to something we own — being forced to re-read before pushing a body
- * edit is the correct behavior, not friction.
+ * Notably included: the **whole comment thread**. The accepted gate artifact is the gate issue
+ * itself (PLAYBOOK §9.5), but the thread is where a gate is argued, evidenced and reopened (§9.6),
+ * so a body is very often written in answer to it. A new comment therefore means the issue moved in
+ * something we mirror, and being forced to re-read before pushing a body edit is the correct
+ * behavior, not friction.
  *
  * Notably excluded: the comment *ordinal*. It is a rendered property of thread position, so
  * comments are canonicalized by ID and a deletion registers as the content change it is rather than
