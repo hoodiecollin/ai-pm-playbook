@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -127,6 +127,75 @@ describe("conflicts", () => {
 
   test("none reported on a clean tree", () => {
     expect(listConflicts(root())).toEqual([]);
+  });
+});
+
+/*
+ * #41. A comment's filename carries its ordinal, which is a property of the whole thread — so a
+ * comment that survives a mid-thread deletion changes filename. Writing the new name while leaving
+ * the old one behind puts the same comment in the thread twice, which reads as a local edit nobody
+ * made, and `pull` then writes that inflated thread back and compounds it.
+ *
+ * `writeTree` prunes stale *directories*; these cover the level below, which it cannot see.
+ */
+describe("writing a thread removes the files it did not write", () => {
+  const commentFiles = (r: string, dir = "standalone/42") =>
+    readdirSync(join(r, dir)).filter((f) => f.startsWith("comment-")).sort();
+
+  const c1 = comment(1, "2026-08-01T00:00:00Z");
+  const c2 = comment(2, "2026-08-02T00:00:00Z");
+  const c3 = comment(3, "2026-08-03T00:00:00Z");
+
+  /** A comment file's contents, written by hand so the old name can be planted directly. */
+  const rendered = (c: { id: number; createdAt: string }) =>
+    `---\nid: ${c.id}\nauthor: "octocat"\ncreatedAt: ${JSON.stringify(c.createdAt)}\n---\nc${c.id}`;
+
+  test("a thread that shrank leaves only the surviving comment", () => {
+    const r = root();
+    writeEntity(r, entity({ comments: [c1, c2, c3] }));
+    writeEntity(r, entity({ comments: [c1] }));
+    expect(commentFiles(r)).toEqual(["comment-001--1.md"]);
+  });
+
+  test("a mid-thread deletion leaves each surviving id exactly once", () => {
+    const r = root();
+    writeEntity(r, entity({ comments: [c1, c2, c3] }));
+    // #3 moves from ordinal 003 to 002, so it is written under a new name. Left unpruned, the old
+    // file survives and the thread contains #3 twice — the reproduction that started #41.
+    writeEntity(r, entity({ comments: [c1, c3] }));
+
+    expect(commentFiles(r)).toEqual(["comment-001--1.md", "comment-002--3.md"]);
+    expect(readTree(r).get(42)!.comments.map((c) => c.id)).toEqual([1, 3]);
+  });
+
+  test("a file from a superseded naming scheme is removed", () => {
+    const r = root();
+    writeEntity(r, entity({ comments: [c1] }));
+    // How this repo actually got corrupted: the name went from `comment-N-<id>` to `comment-N--<id>`,
+    // so every thread predating the rename was seeded with a duplicate on the next pull.
+    writeFileSync(join(r, "standalone/42", "comment-001-1.md"), rendered(c1), "utf8");
+    writeEntity(r, entity({ comments: [c1] }));
+
+    expect(commentFiles(r)).toEqual(["comment-001--1.md"]);
+    expect(readTree(r).get(42)!.comments).toHaveLength(1);
+  });
+
+  test("body.md and unrelated files are left alone", () => {
+    const r = root();
+    writeEntity(r, entity({ comments: [c1] }));
+    writeFileSync(join(r, "standalone/42", "notes.md"), "mine\n", "utf8");
+    writeEntity(r, entity({ comments: [] }));
+
+    expect(existsSync(join(r, "standalone/42", "body.md"))).toBe(true);
+    expect(existsSync(join(r, "standalone/42", "notes.md"))).toBe(true);
+    expect(commentFiles(r)).toEqual([]);
+  });
+
+  test("pruning does not reach another entity's directory", () => {
+    const r = root();
+    writeEntity(r, entity({ number: 7, comments: [c1, c2] }));
+    writeEntity(r, entity({ number: 42, comments: [] }));
+    expect(commentFiles(r, "standalone/7")).toHaveLength(2);
   });
 });
 
