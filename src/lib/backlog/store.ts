@@ -61,12 +61,31 @@ function readComments(dir: string): Comment[] {
   return comments.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id - b.id);
 }
 
+/**
+ * Remove the comment files in `dir` that are not in `keep`.
+ *
+ * A comment's filename carries its *ordinal*, which is a property of the whole thread — so deleting
+ * one comment renames every comment after it. Writing the new names without removing the old ones
+ * leaves the same comment in the directory twice, `readComments` returns it twice, and the entity
+ * reads as a local edit nobody made. `writeTree` cannot catch this: it prunes stale *directories*,
+ * and these files sit inside a directory that is very much still current.
+ *
+ * Scoped to the `comment-` prefix so a hand-kept scratch file in the directory survives.
+ */
+function pruneComments(dirPath: string, keep: Set<string>): void {
+  for (const f of readdirSync(dirPath)) {
+    if (!f.startsWith("comment-") || !f.endsWith(".md") || keep.has(f)) continue;
+    rmSync(join(dirPath, f), { force: true });
+  }
+}
+
 /** Write one entity's `body.md` and comment files to its canonical location. */
 export function writeEntity(root: string, e: BacklogEntity, ancestors: BacklogEntity[] = []): string {
   const dir = entityDir(e, ancestors);
   write(join(root, dir, BODY_FILE), renderBody(e));
   const names = commentFileNames(e.comments);
   e.comments.forEach((c, i) => write(join(root, dir, names[i]!), renderComment(c)));
+  pruneComments(join(root, dir), new Set(names));
   return dir;
 }
 

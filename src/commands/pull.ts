@@ -8,7 +8,7 @@
 
 import { detectRepo, fetchBacklog, listLabels, listMilestones, requireGh } from "../lib/gh.js";
 import { backlogRoot, listConflicts, readIndex, readTree, setAsideConflict, writeIndex, writeTable, writeTree, LABELS_FILE, MILESTONES_FILE } from "../lib/backlog/store.js";
-import { planSync } from "../lib/backlog/plan.js";
+import { mergePending, planSync } from "../lib/backlog/plan.js";
 import { projectionHash } from "../lib/backlog/project.js";
 import { bool, str, type Args } from "../lib/args.js";
 import type { BacklogEntity } from "../lib/backlog/model.js";
@@ -61,12 +61,17 @@ export async function pull(args: Args, repoRoot: string): Promise<number> {
 
   /*
    * Write remote truth everywhere EXCEPT where a local edit is pending and the remote has not
-   * moved — those files stay as the author left them, which is what makes `pull` safe to run
+   * moved — those fields stay as the author left them, which is what makes `pull` safe to run
    * before `push` rather than a step that discards work.
+   *
+   * The comment thread is the exception within the exception: it is pull-only, so the remote's is
+   * always the one written (#41). See `mergePending`.
    */
   const pending = new Set(plan.push.map((e) => e.number));
   const write = new Map<number, BacklogEntity>();
-  for (const [number, entity] of remote) write.set(number, pending.has(number) ? local.get(number)! : entity);
+  for (const [number, entity] of remote) {
+    write.set(number, pending.has(number) ? mergePending(local.get(number)!, entity) : entity);
+  }
   writeTree(root, write);
 
   writeTable(root, LABELS_FILE, await listLabels(repo));

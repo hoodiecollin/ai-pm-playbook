@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { planSync } from "../src/lib/backlog/plan.js";
+import { mergePending, planSync } from "../src/lib/backlog/plan.js";
 import { projectionHash } from "../src/lib/backlog/project.js";
 import type { BacklogEntity } from "../src/lib/backlog/model.js";
 
@@ -142,6 +142,38 @@ describe("comments participate in the comparison", () => {
     const base = entity(1, "body\n");
     const plan = planSync(baseOf(base), map(base), map(withComment(1, 99)));
     expect(plan.pull.map((e) => e.number)).toEqual([1]);
+  });
+});
+
+/*
+ * #41. `pull` keeps a pending local edit on disk instead of overwriting it — but it used to write
+ * the whole LOCAL entity back, comment thread included. Comments are pull-only, so a local thread is
+ * never authoritative, and writing one back is what turned a single stale file into thirty-four.
+ *
+ * This branch runs only when the remote has NOT moved, so the remote's thread already equals the
+ * base's. Taking it is therefore a no-op on a healthy mirror and a repair on a corrupted one.
+ */
+describe("a pending local edit keeps our fields and the remote's thread", () => {
+  const thread = [{ id: 1, author: "octocat", createdAt: "2026-08-01T00:00:00Z", body: "c1" }];
+
+  test("owned fields come from local, comments from remote", () => {
+    const local = { ...entity(1, "my edit\n"), labels: ["rfc"], milestone: "v2.2.0" };
+    const remote = { ...entity(1, "remote body\n"), comments: thread };
+
+    const merged = mergePending(local, remote);
+    expect(merged.body).toBe("my edit\n");
+    expect(merged.labels).toEqual(["rfc"]);
+    expect(merged.milestone).toBe("v2.2.0");
+    expect(merged.comments).toEqual(thread);
+  });
+
+  test("an inflated thread heals: a phantom edit stops reading as one", () => {
+    // The corruption in the field — the same comment present twice, and nothing else different.
+    const remote = { ...entity(1, "same\n"), comments: thread };
+    const local = { ...entity(1, "same\n"), comments: [...thread, ...thread] };
+    expect(projectionHash(local)).not.toBe(projectionHash(remote));
+
+    expect(projectionHash(mergePending(local, remote))).toBe(projectionHash(remote));
   });
 });
 
