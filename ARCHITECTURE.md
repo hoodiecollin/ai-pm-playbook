@@ -143,6 +143,30 @@ Validation is **offline and total** — unknown labels and milestones are reject
 link is made.** This ordering is load-bearing, not a nicety: a crash mid-sequence leaves a draft
 that knows it already exists, so the retry reconciles instead of creating a duplicate epic.
 
+### `comment`
+
+The one direction the mirror writes back that `push` cannot. Existing comments stay pull-only —
+editing another author's is wrong by default — but a *new* comment has no such problem, because its
+authorship is the running token's own identity. It is a command rather than a file in the tree for a
+structural reason: a not-yet-posted comment has no author and no id, and the projection keys comments
+by id, so it cannot be represented on disk before it exists.
+
+**Its central refusal is not obvious from the code, which is why it is recorded here.** Posting a
+comment on an issue that carries an unpushed local body edit moves the remote projection. The edit
+has already moved the local one. So the next `pull` sees both sides moved, classifies the issue as a
+conflict, files the author's body under `conflicts/`, and restores remote truth over it — the
+author's work demoted by their own comment, down a path indistinguishable from a teammate's race.
+
+That hazard exists for anyone running `gh issue comment` by hand and is invisible from outside the
+mirror. Refusing on it is the argument for the command existing at all; it is one hash comparison.
+The refusal is deliberately conservative — it fires on *any* unpushed change to the target, including
+ones a comment could not disturb — because narrowing it would mean reasoning field-by-field about a
+projection that is deliberately whole-entity.
+
+Every refusal lives in `planComment`, which is pure and tested; the command reads a file, prints, and
+calls it. Re-materializing is a whole-backlog `pull`, as `create` does — it never destroys, so it
+changes *when* an unrelated conflict surfaces, never *whether* it does.
+
 ### Fetching is always all-states
 
 `fetchBacklog` deliberately ignores any state scoping. `planSync` resolves "gone from the remote"

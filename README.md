@@ -125,6 +125,7 @@ agent-facing interface. A harness can feed violations straight back to a model:
 | `migrate` | Apply label renames/removals after a MAJOR upgrade. Previews by default; `--yes` applies. |
 | `pull` | Materialize the backlog to `.pm-playbook/backlog/` and record the base snapshot. |
 | `push` | Send local edits back. Refuses any issue whose remote also moved. Previews; `--yes` applies. |
+| `comment <issue> --body-file f` | Post a new comment and re-materialize. Refuses a stale read or an unpushed local edit. Previews; `--yes` posts. |
 | `create` | Publish drafts under `backlog/new/`. Validates offline first. Previews; `--yes` applies. |
 | `rules` | Print the rule index. |
 
@@ -198,6 +199,14 @@ flag. A refused edit isn't lost — the next `pull` sets it aside under `conflic
 truth to the canonical path, and `PM104` keeps reporting it until you resolve it. The comparison is
 a hash of exactly what we claim to own, comment threads included, since a gate is argued and
 evidenced in its thread — so a new comment does block a stale body push, on purpose.
+
+**New comments travel back; existing ones still don't.** `comment <issue> --body-file f` posts one
+and re-materializes. Editing someone else's comment stays out of scope, and a not-yet-posted comment
+has no author or id to put in a file — which is why adding one is a command rather than a file you
+drop in the tree. It refuses when the thread has moved since your last pull, and when the target has
+an unpushed local edit: commenting would move the remote, and the next `pull` would then see both
+sides moved and file your own edit as a conflict. That hazard is invisible to a bare
+`gh issue comment`, which is the point.
 
 The payoff beyond speed: **`check --no-remote` now lints the real backlog.** It used to skip every
 issue-level invariant without a network, so a sandbox or air-gapped CI job could only check doctrine
