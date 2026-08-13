@@ -17,7 +17,12 @@ jobs:
       - run: bun run build
 
       # The CLI must run on stock Node, not just Bun — most consumers reach it via `npx`.
-      - uses: actions/setup-node@v4
+      #
+      # `node-version` is deliberately BEHIND the action version and should stay that way. The
+      # action major is a runner-runtime concern; the version below is the floor this package
+      # claims to support (`engines.node: >=18`) and the vintage a consumer plausibly has. Raising
+      # it to match the action would stop testing the thing this job exists to test.
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
       - name: Smoke-test the bundle on Node
@@ -54,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
       - name: Install Claude Code
