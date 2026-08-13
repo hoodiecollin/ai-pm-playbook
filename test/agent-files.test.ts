@@ -38,6 +38,19 @@ describe("the stanza teaches the current taxonomy", () => {
     expect(stanza).toContain("AGENT.md");
   });
 
+  test("routes the agent to the local mirror", () => {
+    // `pull` builds a full local copy of the backlog, and for the first two releases nothing in
+    // the always-loaded context mentioned it — so agents spent a round trip per question against
+    // a mirror sitting unread on disk. A capability nothing routes to does not exist.
+    expect(stanza).toContain("backlog/");
+    expect(stanza).toContain("pull");
+  });
+
+  test("says the mirror is read-only without a reconciling write", () => {
+    // The dangerous misreading is "these are files, so I can edit them to change an issue."
+    expect(stanza).toContain("push");
+  });
+
   test("is delimited so a re-init replaces it in place", () => {
     expect(stanza).toStartWith(BEGIN);
     expect(stanza).toEndWith(END);

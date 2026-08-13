@@ -91,10 +91,15 @@ GitHub filter can compute it.
   means its milestone **cannot be tagged** (PM004/PM005).
 - A non-core \`surface:*\` issue never rides a core \`v*\` milestone (PM006).
 
-**Verify before opening a PR** — exit code 0 means compliant:
+**Read the backlog from the local mirror when it exists.** \`${VENDOR_DIR}/backlog/\` holds every
+issue body and comment as files — grep it instead of spending an API round trip per question. It is
+gitignored and machine-local, so its absence means "not pulled here yet", never "no issues", and it
+goes stale as soon as anyone else moves an issue. Reading is local; **writing is not** — edit and
+\`push\` (it refuses when both sides moved), or use \`gh\` directly.
 
 \`\`\`bash
-npx @hoodiecollin/pm-playbook check
+npx @hoodiecollin/pm-playbook pull     # refresh the mirror (idempotent)
+npx @hoodiecollin/pm-playbook check    # verify before opening a PR — exit 0 means compliant
 \`\`\`
 ${END}`;
 }
