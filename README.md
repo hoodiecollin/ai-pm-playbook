@@ -355,6 +355,29 @@ bun run typecheck
 
 This repo publishes the doctrine, so it does not vendor a second copy of it — see `AGENTS.md`.
 
+### Releasing
+
+**Pushing the tag is the release.** `.github/workflows/release.yml` publishes to npm using npm's
+OIDC trusted publishing, so there is no `NPM_TOKEN` in this repo and nothing to rotate — npm
+verifies the workflow identity instead of a stored string, and `--provenance` records which commit
+and which run produced the tarball.
+
+```bash
+# bump all four versioned assets first: package.json, the plugin manifest,
+# the marketplace entry, and this repo's own stanza (`init` refreshes that one).
+npx @hoodiecollin/pm-playbook release-check vX.Y.Z   # exit 1 if the milestone is gated or incomplete
+git tag vX.Y.Z && git push origin vX.Y.Z
+```
+
+The workflow refuses to publish when the tag and `package.json` disagree — that check runs before
+the registry is touched, because a published version cannot be withdrawn.
+
+Two things this depends on, both outside CI: the trusted publisher must be configured once on
+npmjs.com against **this repo and the filename `release.yml`** (renaming the file breaks publishing
+until the config is updated), and the milestone still has to be closed by hand after the tag —
+`check` fails on the next push otherwise, since closing a milestone is what triggers the
+`materialize` pass for the new cycle.
+
 ## License
 
 MIT
