@@ -57,6 +57,7 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "check": "bun run build && node dist/cli.js check --no-remote",
+    "version:set": "bun scripts/version-set.ts",
     "prepublishOnly": "bun run typecheck && bun test && bun run build"
   },
   "devDependencies": {
