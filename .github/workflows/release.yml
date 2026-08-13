@@ -46,24 +46,35 @@ jobs:
       # `prepublishOnly` runs typecheck + test + build, so the tarball is never assembled from an
       # unverified tree. Bun must be on PATH before `npm publish` for that hook to work.
       #
-      # DO NOT ADD `registry-url:` HERE. It looks like the obvious way to point at npm, and it is
-      # what every token-based publish guide sets — but it makes setup-node write an `.npmrc`
-      # containing `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` and export
-      # NODE_AUTH_TOKEN as the literal placeholder `XXXXX-XXXXX-XXXXX-XXXXX`.
+      # THE MAJOR VERSION HERE IS NOT COSMETIC — v7 IS THE FLOOR FOR TRUSTED PUBLISHING.
       #
-      # npm only falls back to the OIDC exchange when it finds NO configured credential for the
-      # registry. With that line present it finds one, sends the placeholder, and the registry
-      # answers `404 Not Found` on the PUT — npm reports a missing package rather than bad auth,
-      # so the error names the wrong problem entirely. Provenance still signs correctly (that uses
-      # the OIDC token directly), which makes it look like trusted publishing is working.
+      # Every setup-node before v7 exported `NODE_AUTH_TOKEN` as the literal placeholder
+      # `XXXXX-XXXXX-XXXXX-XXXXX` whenever `registry-url` was set and the caller had not supplied a
+      # real token. The `.npmrc` it writes references that variable, so npm found a credential,
+      # sent garbage, and never attempted the OIDC exchange. actions/setup-node#1558 ("Remove dummy
+      # NODE_AUTH_TOKEN export") fixed it in v7: the variable is now exported only when the caller
+      # actually set it.
       #
-      # The default registry is already registry.npmjs.org, so nothing is lost by omitting it.
-      - uses: actions/setup-node@v4
+      # Both failure modes were observed on this repo before the bump, and neither error names the
+      # real problem:
+      #   v4 + registry-url  → `E404 Not Found - PUT .../@hoodiecollin%2fpm-playbook`, which reads
+      #                        as "package does not exist" but is really "bad credential".
+      #   v4 - registry-url  → `ENEEDAUTH ... you need to authorize this machine`, with no OIDC
+      #                        attempt logged at all.
+      # Provenance signs correctly either way — it takes the OIDC token straight from GitHub and
+      # never touches the registry credential — so a signed provenance line is NOT evidence that
+      # trusted publishing worked.
+      #
+      # `registry-url` IS required, per the recipe in actions/setup-node#1536: it is what writes the
+      # userconfig naming registry.npmjs.org, which is the registry npm runs the exchange against.
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # 24 ships an npm that already clears the 11.5.1 floor; the step below is the guarantee.
+          node-version: 24
+          registry-url: https://registry.npmjs.org
 
-      # Node 20 ships npm 10, which predates OIDC trusted publishing entirely. Pinning the floor
-      # rather than taking `@latest` blindly keeps the failure mode legible if npm changes again.
+      # npm added trusted publishing in 11.5.1. Pinning the floor rather than taking `@latest`
+      # blindly keeps the failure mode legible if npm changes again.
       - name: Ensure npm supports trusted publishing
         run: |
           set -euo pipefail
