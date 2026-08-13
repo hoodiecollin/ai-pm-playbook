@@ -98,5 +98,13 @@ jobs:
       # `--provenance` attaches a signed, publicly verifiable statement of which workflow and which
       # commit produced this tarball. It is what makes the trusted-publisher identity visible to
       # consumers rather than only to npm.
+      #
+      # `--loglevel verbose` is not debugging left behind — it is the only way an OIDC failure is
+      # visible at all. npm's `lib/utils/oidc.js` is written to NEVER THROW: every failure path
+      # (no id-token permission, GitHub refused the token, the registry rejected the exchange)
+      # logs at verbose or silly and returns `undefined`, and publish then proceeds with whatever
+      # credential it already had. The resulting error describes that fallback, not the exchange —
+      # which is how this workflow produced three different misleading errors in a row. At verbose,
+      # the exchange logs `npm verb oidc` with the registry's own reason for saying no.
       - name: Publish
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --loglevel verbose
