@@ -75,3 +75,28 @@ describe("planVendor — orphan scan", () => {
     expect(plan.updated).toEqual([]);
   });
 });
+
+/**
+ * A release can leave every vendored file byte-identical and still move the version — a fix that
+ * only touches `src/`, or a docs change an earlier run already vendored.
+ *
+ * `init` used to write the manifest only when file CONTENT differed, so that release left the
+ * recorded version behind. That is not cosmetic: PM100 compares the manifest against the installed
+ * package, so it warned "your agents are reading stale rules" and named `init` as the fix — and
+ * `init` answered "already current" and wrote nothing. The advice looped, and the only escape was
+ * `--force`, which is documented for a different problem entirely.
+ */
+describe("planVendor — a version-only release", () => {
+  test("reports no content changes when only the version moved", () => {
+    const { repoRoot, sourceDir } = fixture();
+    write(join(repoRoot, VENDOR_DIR, "AGENT.md"), "doctrine\n");
+    write(join(sourceDir, "AGENT.md"), "doctrine\n");
+
+    const plan = planVendor(repoRoot, sourceDir);
+    // This is the state that fooled `init`: nothing to write by content, yet the manifest is stale.
+    // `init` must therefore consult the recorded version, not this plan alone, to decide to write.
+    expect(plan.added).toEqual([]);
+    expect(plan.updated).toEqual([]);
+    expect(plan.conflicted).toEqual([]);
+  });
+});

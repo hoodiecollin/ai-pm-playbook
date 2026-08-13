@@ -12,7 +12,7 @@ import { join, relative } from "node:path";
 
 import { DEFAULT_AGENT_FILE, detectAgentFiles, planStanza, writeStanza } from "../lib/agent-files.js";
 import { PLAYBOOK_ASSETS, TEMPLATE_ASSETS, packageName, packageVersion } from "../lib/paths.js";
-import { BACKLOG_DIR, VENDOR_DIR, planVendor, writeVendor } from "../lib/vendor.js";
+import { BACKLOG_DIR, VENDOR_DIR, planVendor, readManifest, writeVendor } from "../lib/vendor.js";
 import { bool, list, str, type Args } from "../lib/args.js";
 import { bootstrap } from "./bootstrap.js";
 
@@ -85,8 +85,22 @@ export async function init(args: Args, repoRoot: string): Promise<number> {
   }
 
   const changes = plan.added.length + plan.updated.length + plan.conflicted.length;
-  if (changes === 0) {
+  /*
+   * A release can leave every vendored FILE byte-identical and still move the version — a fix that
+   * only touches `src/`, or a docs change already vendored by an earlier run. Writing only when
+   * file content differs left the manifest recording the old version, which is not cosmetic:
+   * PM100 compares the manifest against the installed package, so it warned "your agents are
+   * reading stale rules" and offered `init` as the fix — and `init` reported "already current" and
+   * changed nothing. The advice looped. The manifest version is part of what `init` maintains, so
+   * a stale one is a reason to write on its own.
+   */
+  const recorded = readManifest(repoRoot)?.version;
+  const versionStale = recorded !== undefined && recorded !== version;
+
+  if (changes === 0 && !versionStale) {
     console.log(`  ${VENDOR_DIR}/ already current (v${version})`);
+  } else if (changes === 0) {
+    console.log(`  ${VENDOR_DIR}/ content unchanged — recording v${version} (was v${recorded})`);
   } else {
     for (const f of plan.added) console.log(`${tag}  + ${VENDOR_DIR}/${f}`);
     for (const f of [...plan.updated, ...plan.conflicted]) console.log(`${tag}  ~ ${VENDOR_DIR}/${f}`);
@@ -94,7 +108,7 @@ export async function init(args: Args, repoRoot: string): Promise<number> {
   for (const f of plan.orphaned) {
     console.log(`${tag}  ! ${VENDOR_DIR}/${f} — no longer shipped; safe to delete`);
   }
-  if (!dry && changes > 0) writeVendor(repoRoot, PLAYBOOK_ASSETS, version, packageName());
+  if (!dry && (changes > 0 || versionStale)) writeVendor(repoRoot, PLAYBOOK_ASSETS, version, packageName());
 
   // 2. Issue templates -------------------------------------------------------
   if (!bool(args, "no-templates")) {

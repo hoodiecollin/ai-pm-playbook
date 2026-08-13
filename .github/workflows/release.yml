@@ -1,0 +1,79 @@
+# Publish to npm on a version tag, using npm's OIDC trusted publishing.
+#
+# WHY THERE IS NO NPM_TOKEN HERE
+#
+# Trusted publishing lets npm verify the *workflow* that is asking to publish, via a short-lived
+# OIDC token GitHub mints for this run. There is no long-lived credential to store, leak, rotate,
+# or forget to rotate — and a stolen token cannot be replayed, because the identity being checked
+# is "this repo, this workflow file", not "whoever holds this string".
+#
+# That identity check is also the reason the filename matters. npm is configured to trust
+# `release.yml` on this repo specifically. RENAMING THIS FILE BREAKS PUBLISHING until the trusted
+# publisher config on npmjs.com is updated to match.
+#
+# ONE-TIME SETUP (npmjs.com, by a package owner — cannot be done from CI):
+#   Package → Settings → Publishing access → Trusted publisher → GitHub Actions
+#     Organization or user:  hoodiecollin
+#     Repository:            ai-pm-playbook
+#     Workflow filename:     release.yml
+#     Environment:           (leave blank — this workflow declares none)
+#
+# Until that is configured the publish step fails with a 404/403 on the OIDC exchange; the guard
+# job below still runs, so a mismatched tag is caught either way.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# `id-token: write` is what lets GitHub mint the OIDC token. Without it npm falls back to looking
+# for a token it will not find. `contents: read` is the default-deny posture: this workflow
+# publishes, it does not write to the repo.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+
+      # `prepublishOnly` runs typecheck + test + build, so the tarball is never assembled from an
+      # unverified tree. Bun must be on PATH before `npm publish` for that hook to work.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      # Node 20 ships npm 10, which predates OIDC trusted publishing entirely. Pinning the floor
+      # rather than taking `@latest` blindly keeps the failure mode legible if npm changes again.
+      - name: Ensure npm supports trusted publishing
+        run: |
+          set -euo pipefail
+          npm install -g npm@^11.5.1
+          npm --version
+
+      # The tag is the thing humans get wrong: `git tag v2.1.0` on a tree whose package.json still
+      # says 2.0.1 publishes the wrong number, and npm will happily accept it. Fail before the
+      # registry is touched, because a published version cannot be taken back.
+      - name: Tag must match package.json
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${PKG}"
+            exit 1
+          fi
+          echo "publishing ${PKG}"
+
+      # `--provenance` attaches a signed, publicly verifiable statement of which workflow and which
+      # commit produced this tarball. It is what makes the trusted-publisher identity visible to
+      # consumers rather than only to npm.
+      - name: Publish
+        run: npm publish --provenance --access public
