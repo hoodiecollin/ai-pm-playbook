@@ -14,7 +14,7 @@
 > consumer actually gets.
 
 <!-- pm-playbook:begin -->
-## Project management — pm-playbook v2.2.0
+## Project management — pm-playbook v2.2.1
 
 Issue tracking in this repo follows the **pm-playbook** two-axis model. The full doctrine is
 vendored at `.pm-playbook/` and is authoritative; this block is only a summary.
