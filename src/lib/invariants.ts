@@ -170,7 +170,12 @@ function checkStructure(parentage: Parentage, cycle: string | null): Violation[]
     }
 
     const type = workTypeOf(issue.labels);
-    if (!type || issue.labels.includes("epic")) continue;
+    // A `release-gate` is a release OBLIGATION, not work with a design→plan→impl arc: publish the
+    // substrate, reconcile a version line, rotate a credential. There is no design to accept and no
+    // plan to write, so demanding a gate set for one asks for three sub-issues nobody can fill in.
+    // It sits in the same exempt class as `epic` — a thing the two-axis model tracks that is not a
+    // work item. PM004/PM005 are what govern it instead.
+    if (!type || issue.labels.includes("epic") || issue.labels.includes("release-gate")) continue;
 
     const children = childrenOf.get(number) ?? [];
     const present = new Map<number, Issue>();
@@ -236,8 +241,12 @@ export function checkIssues(
     const isGate = gateOf(i.labels) !== null;
 
     // PM010 — exactly one type label (§3.1). Epics are containers, not work; gates inherit their
-    // parent's type through their own label, so neither is a work item for this purpose.
-    if (!isGate && !has("epic")) {
+    // parent's type through their own label, so neither is a work item for this purpose. Nor is a
+    // `release-gate`: it is a release obligation, and requiring a type on one walked straight into
+    // PM013, which then demanded a gate set for it. Between them the two rules made every
+    // release-gate on the cycle in flight permanently non-compliant — the exemption belongs here,
+    // at the rule that was asking the wrong question, rather than as a suppression downstream.
+    if (!isGate && !has("epic") && !has("release-gate")) {
       const found = WORK_TYPES.filter(has);
       if (found.length !== 1) {
         out.push({

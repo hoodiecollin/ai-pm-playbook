@@ -129,6 +129,18 @@ describe("PM013 — the complete gate set on the focused milestone (§9)", () =>
     expect(structural(tree([[g1, work]]), focused)).toContain("PM013");
   });
 
+  // The exemption has to hold for a release-gate that DOES carry a type label, not merely for a
+  // bare one. PM010 no longer requires the label, but existing repos have release-gates that were
+  // labelled to satisfy the old rule, and an exemption that only covers the tidy case leaves every
+  // one of those still failing.
+  test("silent on a release obligation, which has no design→plan→impl arc", () => {
+    const bare = issue({ labels: ["release-gate"], milestone: focused });
+    expect(structural(tree([], [bare]), focused)).not.toContain("PM013");
+
+    const typed = issue({ labels: ["improvement", "release-gate"], milestone: focused });
+    expect(structural(tree([], [typed]), focused)).not.toContain("PM013");
+  });
+
   test("silent on a complete set", () => {
     const work = issue({ milestone: focused });
     const gates = [1, 2, 3].map((n) => issue({ labels: [`improvement:gate-${n}`], milestone: focused }));

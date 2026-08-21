@@ -179,6 +179,17 @@ describe("PM004 / PM005 — release-gate (§3.2, §5.2)", () => {
   test("a correctly-formed gate is clean", () => {
     expect(rules([issue({ labels: ["improvement", "release-gate"], milestone: "v1.0.0" })])).toEqual([]);
   });
+
+  // A release obligation is not work with a design→plan→impl arc, so PM010 must not demand a type
+  // for one. It used to, and the type it demanded then satisfied PM013's precondition — which
+  // demanded three gates nobody could write. The two rules together made every release-gate on the
+  // cycle in flight permanently non-compliant.
+  test("PM010 does not demand a work type on a release obligation", () => {
+    expect(rules([issue({ labels: ["release-gate"], milestone: "v1.0.0" })])).toEqual([]);
+  });
+  test("...but a release-gate that carries one anyway is still accepted", () => {
+    expect(rules([issue({ labels: ["improvement", "release-gate"], milestone: "v1.0.0" })])).toEqual([]);
+  });
 });
 
 describe("PM006 — surface exclusion (§6.1)", () => {
