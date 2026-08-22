@@ -935,7 +935,48 @@ the tree are **durable architecture references for *shipped* features** (`ARCHIT
 feature ships, fold its durable design into `ARCHITECTURE.md`; the gate issue is already closed and
 stays as the record of how the decision was reached.
 
-### 9.6 Reopening an accepted gate — purge the body FIRST
+### 9.6 A body states current truth only — purge as you amend
+
+**The general rule, of which reopening a gate is one instance:**
+
+> **An amendment replaces. The thing being superseded comes out in the same edit that puts the
+> replacement in.** Not struck through, not annotated "see below", not left in place with a
+> correction underneath.
+
+**Why this is a hard rule and not a nicety.** A superseded paragraph does not read as superseded —
+it reads as current, because that is what a body *is*. Everything downstream trusts it: the next
+planning pass, an agent picking the issue up cold, a reviewer checking whether the implementation
+matches. The correction is invariably in a comment, and top-down readers never reach it. The failure
+is silent and it compounds, and it costs every parallel agent separately, because each one loads the
+whole body and pays for the dead half.
+
+Two shapes recur. **Superseded content accumulates**: a claim is disproved, a constraint turns out
+to be an assumption, a number gets corrected — the correction lands in a new paragraph and the
+original stays, so every later reader has to work out which half is live. And **justification
+outgrows substance**: rationale gets written at the length it took to think rather than the length
+it takes to convey, until the artifact stops being reviewable by a human and stops being usable by
+an agent. **Rationale is proportionate to the decision it supports.**
+
+This is about the **body**, which is the only surface that reads as current by default. Comments
+remain the discussion record; nothing here deletes history.
+
+#### Every body opens with a plain-English summary
+
+**The first section of every work item and every epic is `### In plain English`** — two or three
+sentences on what this is, for a reader who has never seen it. Structured content follows it;
+rationale follows that.
+
+The heading is **identical everywhere** rather than tuned per type, because it is read by tooling as
+well as by people, and a per-type heading would push a type-to-heading table into every consumer and
+break the moment a type is added. It is checked by **PM017**, on presence and position only — no
+mechanism can tell a live paragraph from a dead one, and a length threshold measures the symptom
+least correlated with the defect.
+
+**Gates and `release-gate` issues are exempt from the slot**, though not from the purge rule above:
+their bodies are seeded with mandated structure that already serves the purpose. An **epic is not
+exempt** — it is read by the same tooling its children are.
+
+#### Reopening an accepted gate
 
 Gates get reopened. New information lands, a constraint turns out to be an artifact of an
 assumption, an implementation reveals the design was solving the wrong problem. Redoing a gate is
@@ -949,13 +990,6 @@ thinking happens.** What replaces it is a placeholder and nothing else:
 > withdrawn and this body intentionally holds no design content. Do not plan against anything
 > here. The live discussion is in the comments.
 ```
-
-**Why this is a hard rule and not a nicety.** A superseded design in the body does not read as
-superseded — it reads as **the accepted design**, because that is what a body *is*. Everything
-downstream trusts it: the next planning pass, an agent picking the issue up cold, a reviewer
-checking whether the implementation matches. The correction is invariably in a comment, and
-top-down readers never reach it. The failure is silent and it compounds: a plan written against a
-withdrawn design looks exactly like a plan written against the live one.
 
 Stashing the old body to a scratch file while you work is fine and often useful. **Delete the
 stash when the new gate is accepted and the new body is written** — a lingering copy of a
