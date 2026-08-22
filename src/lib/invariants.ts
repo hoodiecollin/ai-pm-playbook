@@ -69,6 +69,7 @@ export const RULES: RuleMeta[] = [
   { rule: "PM103", section: "—", severity: "warn", summary: "Label migrations from a newer doctrine version have not been applied." },
   { rule: "PM104", section: "§11", severity: "warn", summary: "Unresolved backlog conflict drafts are waiting for a decision." },
   { rule: "PM105", section: "§7.1", severity: "error", summary: "Only an `epic` may have non-gate sub-issues, and only a work item may have gates." },
+  { rule: "PM106", section: "—", severity: "warn", summary: "The mirror covers only part of the backlog, so an offline answer covers only that part." },
 ];
 
 function ref(i: Issue) {

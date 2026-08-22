@@ -22,6 +22,7 @@ import { currentCycle } from "../lib/model.js";
 import { BACKLOG_DIR, VENDOR_DIR, detectDrift } from "../lib/vendor.js";
 import { MILESTONES_FILE, backlogRoot, listConflicts, readIndexRepo, readTable, readTree } from "../lib/backlog/store.js";
 import { snapshot } from "../lib/backlog/lint.js";
+import { readCoverage, shortfall } from "../lib/backlog/coverage.js";
 import { pendingForRepo } from "./migrate.js";
 import { packageVersion } from "../lib/paths.js";
 import { bool, str, type Args } from "../lib/args.js";
@@ -147,6 +148,25 @@ export async function check(args: Args, repoRoot: string): Promise<number> {
       // PM017 reads BODIES, which only the mirror has — `Issue` carries none. This is the only
       // tier where it can run at all; the networked tier says so rather than passing silently.
       violations.push(...checkBodies(entities.values(), repo));
+
+      /*
+       * PM106 — a partial mirror answers for a subset, and must say so.
+       *
+       * It reports rather than refusing to run: the offline tier exists for sandboxes and
+       * air-gapped CI, which is exactly where partial mirrors will be most common, and a check that
+       * declines to start there is the "passes by not running" failure wearing a different face
+       * (§5.5). A clean run over a subset stays clean — it just stops being reportable as a clean
+       * run over the backlog.
+       */
+      const shortfallNote = shortfall(readCoverage(root));
+      if (shortfallNote) {
+        violations.push({
+          rule: "PM106", severity: "warn", section: "—",
+          file: `${VENDOR_DIR}/${BACKLOG_DIR}`,
+          message: `This answer covers only part of the backlog — ${shortfallNote}. Anything outside it was not looked at, and "no violations" does not extend to it.`,
+          fix: "Run `pm-playbook pull` with no scope flags to cover the whole backlog.",
+        });
+      }
       notes.push(`Linted the materialized backlog at ${VENDOR_DIR}/${BACKLOG_DIR} — run \`pull\` if it may be stale.`);
     }
   }
