@@ -12,6 +12,8 @@ import {
   CORE_SURFACE, GATES, SURFACE_PREFIX, WORK_TYPES,
   compareMilestones, gateOf, isCoreMilestone, isPatchMilestone, workTypeOf,
 } from "./model.js";
+import { SUMMARY_HEADING, readSummary } from "./backlog/summary.js";
+import type { BacklogEntity } from "./backlog/model.js";
 import type { Issue, PullRequestScope } from "./gh.js";
 
 export type Severity = "error" | "warn";
@@ -60,12 +62,14 @@ export const RULES: RuleMeta[] = [
   { rule: "PM014", section: "§5.6", severity: "error", summary: "`hotfix` requires `bugfix` and a milestone, and never carries `experiment` or `epic`." },
   { rule: "PM015", section: "§5.6", severity: "error", summary: "A patch milestone holds one hotfix work item, its gates, and any release-gate — no other work." },
   { rule: "PM016", section: "§9", severity: "warn", summary: "Every gate is closed but the work item is still open." },
+  { rule: "PM017", section: "§9.6", severity: "warn", summary: "An open work item or epic opens with the plain-English summary slot." },
   { rule: "PM100", section: "—", severity: "warn", summary: "Vendored `.pm-playbook/` differs from the installed package." },
   { rule: "PM101", section: "—", severity: "warn", summary: "Agent instruction file is missing the pm-playbook stanza." },
   { rule: "PM102", section: "§11", severity: "warn", summary: "A markdown shadow backlog exists; the backlog lives in Issues." },
   { rule: "PM103", section: "—", severity: "warn", summary: "Label migrations from a newer doctrine version have not been applied." },
   { rule: "PM104", section: "§11", severity: "warn", summary: "Unresolved backlog conflict drafts are waiting for a decision." },
   { rule: "PM105", section: "§7.1", severity: "error", summary: "Only an `epic` may have non-gate sub-issues, and only a work item may have gates." },
+  { rule: "PM106", section: "—", severity: "warn", summary: "The mirror covers only part of the backlog, so an offline answer covers only that part." },
 ];
 
 function ref(i: Issue) {
@@ -425,3 +429,61 @@ export function checkPullRequestScope(
   return out;
 }
 
+
+/**
+ * PM017 — every open work item and epic opens with the plain-English summary slot (§9.6).
+ *
+ * Carried separately from `checkIssues` because it is the one rule that reads a **body**, and
+ * `Issue` has none: `asIssue` projects a `BacklogEntity` into an `Issue` and drops it, and the
+ * networked fetch omits bodies on purpose — `fetchParentage`'s own note says fetching them would
+ * make every `check` pay `fetchBacklog` prices for a graph of numbers.
+ *
+ * So this runs on the materialized backlog only, and `check` says so on the networked tier rather
+ * than passing by not running (§5.5). PM104 is already mirror-only for the same structural reason.
+ *
+ * A **warning**, not an error: every repo adopting the playbook would otherwise fail `check` on its
+ * entire existing backlog at once. `--strict` remains available to anyone who wants it enforced.
+ */
+export function checkBodies(entities: Iterable<BacklogEntity>, repo: string | null): Violation[] {
+  const out: Violation[] = [];
+
+  for (const e of entities) {
+    // Closed issues are never retrofitted — they are the historical record, and flagging them would
+    // generate permanent noise nobody may act on.
+    if (e.state !== "OPEN") continue;
+
+    // Gates and release-gates are seeded with mandated structure that already serves this purpose.
+    // An epic is NOT exempt: it is read by the same tooling its children are.
+    if (gateOf(e.labels) !== null) continue;
+    if (e.labels.includes("release-gate")) continue;
+    if (workTypeOf(e.labels) === null && !e.labels.includes("epic")) continue;
+
+    const { text, misplaced } = readSummary(e.body);
+    const issue = {
+      number: e.number,
+      title: e.title,
+      url: `https://github.com/${repo ?? "unknown/unknown"}/issues/${e.number}`,
+    };
+
+    if (text === null) {
+      out.push({
+        rule: "PM017", severity: "warn", section: "§9.6", issue,
+        message: `#${e.number} has no \`### ${SUMMARY_HEADING}\` section. A reader — or a command composing this issue's purpose — has nothing to read but the whole body.`,
+        fix: `Add \`### ${SUMMARY_HEADING}\` as the first section: two or three sentences on what this is, for someone who has never seen it.`,
+      });
+      continue;
+    }
+
+    // Presence and position are separate facts, so they get separate messages. "It exists but is
+    // third" is a different edit from "it does not exist".
+    if (misplaced) {
+      out.push({
+        rule: "PM017", severity: "warn", section: "§9.6", issue,
+        message: `#${e.number} has a \`### ${SUMMARY_HEADING}\` section, but something else comes first. The summary is what a reader sees before deciding whether to read on.`,
+        fix: `Move \`### ${SUMMARY_HEADING}\` to the top of the body, above every other section.`,
+      });
+    }
+  }
+
+  return out;
+}

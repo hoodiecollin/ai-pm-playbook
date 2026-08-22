@@ -6,9 +6,11 @@
  * `conflicts/` before remote truth reclaims the canonical path.
  */
 
-import { detectRepo, fetchBacklog, listLabels, listMilestones, requireGh } from "../lib/gh.js";
+import { detectRepo, fetchBacklog, fetchParentage, listLabels, listMilestones, requireGh } from "../lib/gh.js";
 import { backlogRoot, listConflicts, readIndex, readTree, setAsideConflict, writeIndex, writeTable, writeTree, LABELS_FILE, MILESTONES_FILE } from "../lib/backlog/store.js";
 import { mergePending, planSync } from "../lib/backlog/plan.js";
+import { describeScope, expand, isEverything, parseScope } from "../lib/backlog/scope.js";
+import { mergeCoverage, readCoverage, writeCoverage } from "../lib/backlog/coverage.js";
 import { projectionHash } from "../lib/backlog/project.js";
 import { bool, str, type Args } from "../lib/args.js";
 import type { BacklogEntity } from "../lib/backlog/model.js";
@@ -30,15 +32,49 @@ export async function pull(args: Args, repoRoot: string): Promise<number> {
     return 2;
   }
 
+  const parsed = parseScope(args);
+  if ("error" in parsed) {
+    console.error(`ERROR: ${parsed.error}`);
+    return 2;
+  }
+  const scope = parsed;
+  const scoped = !isEverything(scope);
+
   const root = backlogRoot(repoRoot);
-  const remote = new Map((await fetchBacklog(repo)).map((e) => [e.number, e]));
+
+  /*
+   * A scoped pull resolves WHAT to fetch before fetching it, from the cheap graph of numbers rather
+   * than from bodies — `fetchParentage` returns labels, milestones and parentage for every issue at
+   * a fraction of the cost. The scope's three laws are applied there, so gates and an epic's
+   * children are already in the covered set before a single body is transferred.
+   */
+  let covered: Set<number> | null = null;
+  if (scoped) {
+    const graph = await fetchParentage(repo);
+    const scopable = [...graph.all.values()].map((i) => ({
+      number: i.number,
+      labels: i.labels,
+      milestone: i.milestone,
+      parent: graph.parentOf.get(i.number) ?? null,
+    }));
+    covered = expand(scopable, scope);
+    if (covered.size === 0) {
+      console.error(`ERROR: ${describeScope(scope)} matched nothing on ${repo}.`);
+      console.error("  Nothing was fetched and the mirror was not touched.");
+      return 2;
+    }
+  }
+
+  const remote = new Map((await fetchBacklog(repo, covered)).map((e) => [e.number, e]));
   const local = readTree(root);
   const base = readIndex(root);
-  const plan = planSync(base, local, remote);
+  const plan = planSync(base, local, remote, covered);
 
   if (json) {
     console.log(JSON.stringify({
       repo,
+      scope: describeScope(scope),
+      covered: covered ? [...covered].sort((a, b) => a - b) : "everything",
       pull: plan.pull.map((e) => e.number),
       keptLocal: plan.push.map((e) => e.number),
       conflict: plan.conflict.map((c) => c.number),
@@ -50,7 +86,7 @@ export async function pull(args: Args, repoRoot: string): Promise<number> {
   }
 
   if (dry) {
-    report(repo, plan.pull.length, plan.push.length, plan.conflict.map((c) => c.number), plan.remove, plan.orphaned, [], true);
+    report(repo, plan.pull.length, plan.push.length, plan.conflict.map((c) => c.number), plan.remove, plan.orphaned, [], true, scoped ? describeScope(scope) : undefined);
     return 0;
   }
 
@@ -72,7 +108,7 @@ export async function pull(args: Args, repoRoot: string): Promise<number> {
   for (const [number, entity] of remote) {
     write.set(number, pending.has(number) ? mergePending(local.get(number)!, entity) : entity);
   }
-  writeTree(root, write);
+  writeTree(root, write, covered);
 
   writeTable(root, LABELS_FILE, await listLabels(repo));
   writeTable(root, MILESTONES_FILE, await listMilestones(repo));
@@ -85,10 +121,18 @@ export async function pull(args: Args, repoRoot: string): Promise<number> {
    * Written last: a crash before this leaves a tree with no index, which forces a clean re-pull,
    * rather than an index that lies about a half-written tree.
    */
-  writeIndex(root, new Map([...remote].map(([n, e]) => [n, projectionHash(e)])), repo);
+  writeIndex(root, new Map([...remote].map(([n, e]) => [n, projectionHash(e)])), repo, scoped);
+
+  /*
+   * Written after the index, and last of all: it is the record that everything reading the mirror
+   * offline consults to tell "clean" from "not looked at". A crash before this leaves coverage
+   * understated, which is the safe direction — an under-reported mirror produces a warning, an
+   * over-reported one produces a confident wrong answer.
+   */
+  writeCoverage(root, mergeCoverage(readCoverage(root), scope, covered ?? new Set(remote.keys())));
 
   if (!json) {
-    report(repo, plan.pull.length, plan.push.length, plan.conflict.map((c) => c.number), plan.remove, plan.orphaned, setAside, false);
+    report(repo, plan.pull.length, plan.push.length, plan.conflict.map((c) => c.number), plan.remove, plan.orphaned, setAside, false, scoped ? describeScope(scope) : undefined);
     const outstanding = listConflicts(root);
     if (outstanding.length) {
       console.log(`\n⚠️  ${outstanding.length} unresolved conflict draft(s) under conflicts/.`);
@@ -100,10 +144,10 @@ export async function pull(args: Args, repoRoot: string): Promise<number> {
 
 function report(
   repo: string, pulled: number, kept: number, conflicts: number[],
-  removed: number[], orphaned: number[], setAside: string[], dry: boolean,
+  removed: number[], orphaned: number[], setAside: string[], dry: boolean, scopeNote?: string,
 ): void {
   const tag = dry ? "[dry-run] " : "";
-  console.log(`${tag}pull ${repo}`);
+  console.log(`${tag}pull ${repo}${scopeNote ? ` — ${scopeNote}` : ""}`);
   console.log(`  ${pulled} written from remote`);
   if (kept) console.log(`  ${kept} left as edited locally (pending push)`);
   if (conflicts.length) console.log(`  ${conflicts.length} conflicted: ${conflicts.map((n) => `#${n}`).join(", ")}`);

@@ -122,3 +122,27 @@ describe("check — networked tier", () => {
     expect(gh.mutations()).toEqual([]);
   });
 });
+
+describe("check — PM017 runs on the mirror only (§9.6)", () => {
+  test("a body with no summary slot is reported offline", async () => {
+    const root = tempRepoRoot();
+    seedBacklog(root, [entity({ number: 1, body: "### What is the need?\n\nSomething.\n" })], {
+      base: "match",
+      milestones: MILESTONES,
+    });
+
+    const { code, out } = await capture(() => check(parseArgs(["--no-remote", "--json"]), root));
+    const report = JSON.parse(out);
+    expect(report.violations.map((v: { rule: string }) => v.rule)).toContain("PM017");
+    // A warning alone must not fail the run.
+    expect(code).toBe(0);
+  });
+
+  test("the networked tier says PM017 was skipped rather than passing silently", async () => {
+    gh.reset();
+    gh.set({ issues: [], milestones: MILESTONES });
+    const { out } = await capture(() =>
+      check(parseArgs(["--repo", "owner/repo", "--json"]), tempRepoRoot()));
+    expect(JSON.parse(out).notes.join(" ")).toContain("PM017 skipped");
+  });
+});

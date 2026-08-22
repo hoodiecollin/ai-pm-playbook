@@ -325,24 +325,41 @@ interface RawBacklogNode {
   comments: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: RawComment[] };
 }
 
+/** One issue's full projection. Shared so the paged and the by-number queries cannot drift apart. */
+const ISSUE_FIELDS = `
+  number title state body
+  labels(first:50){ nodes{ name } }
+  milestone{ title }
+  parent{ number }
+  comments(first:100){
+    pageInfo{ hasNextPage endCursor }
+    nodes{ databaseId author{ login } createdAt body }
+  }`;
+
 const BACKLOG_QUERY = `
   query($owner:String!,$name:String!,$after:String){
     repository(owner:$owner,name:$name){
       issues(first:50, states:[OPEN,CLOSED], after:$after){
         pageInfo{ hasNextPage endCursor }
-        nodes{
-          number title state body
-          labels(first:50){ nodes{ name } }
-          milestone{ title }
-          parent{ number }
-          comments(first:100){
-            pageInfo{ hasNextPage endCursor }
-            nodes{ databaseId author{ login } createdAt body }
-          }
-        }
+        nodes{ ${ISSUE_FIELDS} }
       }
     }
   }`;
+
+/**
+ * Fetch a named set of issues by number, in batches, using GraphQL aliases.
+ *
+ * This is the "GraphQL where clean" half of a scoped fetch. It is precise — nothing outside the
+ * scope is transferred at all — where a `filterBy` would only handle the milestone case and could
+ * not express "this epic and its children" at all.
+ */
+function byNumberQuery(numbers: number[]): string {
+  const fields = numbers.map((n) => `i${n}: issue(number:${n}){ ${ISSUE_FIELDS} }`).join("\n");
+  return `query($owner:String!,$name:String!){ repository(owner:$owner,name:$name){ ${fields} } }`;
+}
+
+/** Kept well under the point where a query is rejected for complexity or argv length. */
+const BATCH = 25;
 
 const COMMENTS_QUERY = `
   query($owner:String!,$name:String!,$number:Int!,$after:String){
@@ -390,16 +407,55 @@ export function toBacklogEntity(node: RawBacklogNode): BacklogEntity {
 }
 
 /**
- * The entire backlog — every issue, open and closed, with its full comment thread.
+ * The backlog — every issue, open and closed, with its full comment thread.
  *
- * **Always all states, deliberately.** Scoping the fetch would make an out-of-scope issue
- * indistinguishable from a deleted one, and `planSync` resolves "gone from the remote" by deleting
- * the local copy — so a narrower fetch would quietly destroy the local mirror of every closed issue.
+ * **Always all STATES**, at any scope. A closed gate still counts toward its parent's gate set and a
+ * closed parent is still mis-modelled if it holds children it should not, so filtering by state
+ * would disarm exactly the rules the mirror exists to arm.
  *
- * Unlike `epicSubIssueCounts`, this refuses to degrade. A partial backlog reads as "the remote
+ * **Scope is a different axis and is now supported**, but only because the three mechanisms that
+ * read absence as deletion were taught the difference first: `planSync` classifies an uncovered
+ * entity as unchanged rather than removed, `writeTree` prunes only within the covered set, and
+ * `writeIndex` merges rather than replaces. A scoped fetch WITHOUT those is not a smaller answer —
+ * it destroys the mirror, silently. Callers pass the covered set on to all three; `pull` is the
+ * reference for how.
+ *
+ * Unlike `epicSubIssueCounts`, this refuses to degrade. A partial result reads as "the remote
  * changed" across every missing entity, which manufactures conflicts wholesale.
  */
-export async function fetchBacklog(repo: string): Promise<BacklogEntity[]> {
+export async function fetchBacklog(repo: string, numbers?: Iterable<number> | null): Promise<BacklogEntity[]> {
+  if (numbers) return fetchBacklogByNumber(repo, [...numbers]);
+  return fetchWholeBacklog(repo);
+}
+
+async function fetchBacklogByNumber(repo: string, numbers: number[]): Promise<BacklogEntity[]> {
+  const [owner, name] = repo.split("/");
+  const out: BacklogEntity[] = [];
+  const wanted = [...new Set(numbers)].sort((a, b) => a - b);
+
+  for (let i = 0; i < wanted.length; i += BATCH) {
+    const batch = wanted.slice(i, i + BATCH);
+    const res = await run("gh", [
+      "api", "graphql", "-f", `query=${byNumberQuery(batch)}`,
+      "-F", `owner=${owner}`, "-F", `name=${name}`,
+    ]);
+    const repoNode = JSON.parse(res)?.data?.repository as Record<string, RawBacklogNode | null> | undefined;
+    if (!repoNode) throw new Error(`${repo}: could not read issues — check the token's repository scope.`);
+
+    for (const n of batch) {
+      // A null alias means the issue was deleted or transferred between the graph fetch and this
+      // one. Skipping it is right: it is then absent from a scope that covers it, which is exactly
+      // the input `planSync` needs to classify it as removed.
+      const node = repoNode[`i${n}`];
+      if (!node) continue;
+      out.push(await withFullThread(repo, node));
+    }
+  }
+
+  return out;
+}
+
+async function fetchWholeBacklog(repo: string): Promise<BacklogEntity[]> {
   const [owner, name] = repo.split("/");
   const out: BacklogEntity[] = [];
   let after: string | null = null;
@@ -414,21 +470,25 @@ export async function fetchBacklog(repo: string): Promise<BacklogEntity[]> {
       | undefined;
     if (!page) throw new Error(`${repo}: could not read issues — check the token's repository scope.`);
 
-    for (const node of page.nodes) {
-      const entity = toBacklogEntity(node);
-      // A truncated thread would hash as stable-but-wrong: it never flaps, it just silently omits
-      // the tail. Finish the thread rather than accept a partial fetch.
-      if (node.comments.pageInfo.hasNextPage) {
-        entity.comments = await fetchAllComments(repo, node.number, entity.comments, node.comments.pageInfo.endCursor);
-      }
-      out.push(entity);
-    }
+    for (const node of page.nodes) out.push(await withFullThread(repo, node));
 
     if (!page.pageInfo.hasNextPage) break;
     after = page.pageInfo.endCursor;
   }
 
   return out;
+}
+
+/**
+ * A truncated thread would hash as stable-but-wrong: it never flaps, it just silently omits the
+ * tail. Finish the thread rather than accept a partial fetch.
+ */
+async function withFullThread(repo: string, node: RawBacklogNode): Promise<BacklogEntity> {
+  const entity = toBacklogEntity(node);
+  if (node.comments.pageInfo.hasNextPage) {
+    entity.comments = await fetchAllComments(repo, node.number, entity.comments, node.comments.pageInfo.endCursor);
+  }
+  return entity;
 }
 
 async function fetchAllComments(

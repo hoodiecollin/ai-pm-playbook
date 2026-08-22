@@ -167,13 +167,39 @@ Every refusal lives in `planComment`, which is pure and tested; the command read
 calls it. Re-materializing is a whole-backlog `pull`, as `create` does — it never destroys, so it
 changes *when* an unrelated conflict surfaces, never *whether* it does.
 
-### Fetching is always all-states
+### Fetching is always all-STATES; scope is a separate axis
 
-`fetchBacklog` deliberately ignores any state scoping. `planSync` resolves "gone from the remote"
-by deleting the local copy, so a narrower fetch would make an out-of-scope issue indistinguishable
-from a deleted one and quietly destroy the local mirror of every closed issue. Correctness beat the
-volume optimization; volume remains a real concern on a much larger repo. Measured: 232 issues and
-335 comments in 8.6s, 2.7 MB on disk.
+`fetchBacklog` ignores state scoping at every scope. A closed gate still counts toward its parent's
+gate set and a closed parent is still mis-modelled if it holds children it should not, so filtering
+by state would disarm exactly the rules the mirror exists to arm.
+
+**Scope is a different axis, and it is supported.** It was not, originally, and the reason was
+sound: three separate mechanisms read "absent from the fetch" as "deleted upstream", so a narrower
+fetch would have destroyed the local mirror of everything outside it, silently. Volume was a real
+concern on a larger repo — 247 issues and 335 comments, 8.6s and 2.7 MB — and the clause deferring
+it came due.
+
+What made it safe was teaching all three the difference between *absent* and *not looked at*, which
+is knowable only from what a refresh was **asked** to cover. So a covered set is passed in rather
+than inferred: `planSync` classifies an uncovered entity as unchanged, `writeTree` prunes only
+within the covered set, and `writeIndex` merges instead of replacing. Each defaults to today's
+behavior when the set is absent, so the unscoped path is unchanged by construction.
+
+A scope names a thing — a milestone, an epic, the work under no epic — never a quantity. There is no
+depth and no limit, because "the first N of this milestone" is not something a later reader can act
+on, and a mirror that cannot describe its own coverage in actionable terms is the problem rather
+than a cheaper version of it. Four laws are fixed rather than configurable: gates ride with their
+parent, an epic target brings its children, **a scope brings its members' ancestors** (a sub-issue's
+path is `epics/<epic>/subissues/<n>`, so a member without its chain is unwritable), and a scope is
+whole or refused.
+
+`.sync/coverage.json` records what was covered, which is what lets `check --no-remote` report PM106
+rather than describing a subset as the whole. It reports rather than refusing to run: the offline
+tier exists for sandboxes and air-gapped CI, exactly where partial mirrors are most common.
+
+Scoped fetching is precise rather than filtered — the covered set is resolved first from
+`fetchParentage`'s cheap graph of numbers, then bodies are fetched by number in aliased GraphQL
+batches. Nothing outside the scope is transferred at all.
 
 The GraphQL query returns body, labels, milestone, `parent`, and comments in one paginated pass.
 The `subIssues` connection is not used at all — each sub-issue reports its own `parent`, which
