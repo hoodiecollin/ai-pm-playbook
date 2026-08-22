@@ -11,7 +11,8 @@ import { installFakeGh } from "./support/fake-gh.js";
 import { tempRepoRoot } from "./support/repo.js";
 import { parseArgs } from "../src/lib/args.js";
 import { materialize } from "../src/commands/materialize.js";
-import type { Issue, Parentage } from "../src/lib/gh.js";
+import type { Issue } from "../src/lib/gh.js";
+import type { Parentage } from "../src/lib/invariants.js";
 
 const gh = installFakeGh();
 
@@ -38,7 +39,7 @@ async function capture(fn: () => Promise<number>): Promise<{ code: number; out: 
   }
 }
 
-const CYCLE = [{ title: "v1.0.0", state: "open" }];
+const CYCLE = [{ number: 1, title: "v1.0.0", state: "open" }];
 
 /** One ungated improvement on the cycle in flight — three gates pending. */
 function ungated() {

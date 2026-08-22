@@ -66,7 +66,11 @@ export interface SeedOptions {
   base?: BacklogEntity[] | "match";
   repo?: string;
   labels?: string[];
-  milestones?: { title: string; state: string }[];
+  /**
+   * `check` reads this table as `{title, state}[]`, but the fakes hand out full `Milestone`s. Accept
+   * the superset so a fixture can be shared between the two without a cast.
+   */
+  milestones?: { title: string; state: string; number?: number }[];
 }
 
 /**

@@ -35,7 +35,7 @@ function withDraft(d: Draft): string {
   seedBacklog(root, [], {
     base: "match",
     labels: ["improvement", "bugfix", "experiment", "epic"],
-    milestones: [{ title: "v1.0.0", state: "open" }],
+    milestones: [{ number: 1, title: "v1.0.0", state: "open" }],
   });
   const path = join(backlogRoot(root), NEW_DIR, d.slug, BODY_FILE);
   mkdirSync(dirname(path), { recursive: true });

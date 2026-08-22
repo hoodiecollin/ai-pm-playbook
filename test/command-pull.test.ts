@@ -76,7 +76,7 @@ describe("pull — writing", () => {
     gh.set({
       backlog: [entity({ number: 1, title: "one" }), entity({ number: 2, title: "two" })],
       labels: ["improvement"],
-      milestones: [{ title: "v1.0.0", state: "open" }],
+      milestones: [{ number: 1, title: "v1.0.0", state: "open" }],
     });
 
     expect(await run(["--repo", "owner/repo"], root)).toBe(0);

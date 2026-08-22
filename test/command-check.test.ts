@@ -29,7 +29,7 @@ async function capture(fn: () => Promise<number>): Promise<{ code: number; out: 
   }
 }
 
-const MILESTONES = [{ title: "v1.0.0", state: "open" }];
+const MILESTONES = [{ number: 1, title: "v1.0.0", state: "open" }];
 
 describe("check --no-remote — lints the mirror, no network", () => {
   test("a clean mirror is exit 0", async () => {

@@ -28,6 +28,7 @@ import { afterAll, beforeAll, mock } from "bun:test";
 
 import * as realGh from "../../src/lib/gh.js";
 import type { BacklogEntity } from "../../src/lib/backlog/model.js";
+import type { Parentage } from "../../src/lib/invariants.js";
 import type { Issue, Milestone } from "../../src/lib/gh.js";
 
 type GhModule = typeof realGh;
@@ -44,7 +45,7 @@ export interface FakeData {
   milestones?: Milestone[];
   labels?: string[];
   backlog?: BacklogEntity[];
-  parentage?: realGh.Parentage;
+  parentage?: Parentage;
   subIssueCounts?: Map<number, number> | null;
   prScope?: realGh.PullRequestScope;
   /** Number handed back by `createIssue`, incremented per call. */

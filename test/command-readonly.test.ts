@@ -13,7 +13,8 @@ import { parseArgs } from "../src/lib/args.js";
 import { ladder } from "../src/commands/ladder.js";
 import { releaseCheck } from "../src/commands/release-check.js";
 import { scopeCheck } from "../src/commands/scope-check.js";
-import type { Issue, Parentage } from "../src/lib/gh.js";
+import type { Issue } from "../src/lib/gh.js";
+import type { Parentage } from "../src/lib/invariants.js";
 
 const gh = installFakeGh();
 
@@ -40,7 +41,7 @@ async function capture(fn: () => Promise<number>): Promise<{ code: number; out: 
   }
 }
 
-const CYCLE = [{ title: "v1.0.0", state: "open" }];
+const CYCLE = [{ number: 1, title: "v1.0.0", state: "open" }];
 
 describe("ladder — derives the rung from gate state", () => {
   test("an ungated milestoned improvement reads design-next, exit 0", async () => {
@@ -144,7 +145,7 @@ describe("scope-check — the cycle-scope gate (§5.3)", () => {
   test("a PR to develop closing work past the cycle is exit 1 (PM008)", async () => {
     gh.reset();
     gh.set({
-      milestones: [{ title: "v1.0.0", state: "open" }, { title: "v2.0.0", state: "open" }],
+      milestones: [{ number: 1, title: "v1.0.0", state: "open" }, { number: 2, title: "v2.0.0", state: "open" }],
       issues: [],
       prScope: scope("develop", [{ number: 5, milestone: "v2.0.0" }]),
     });
@@ -159,7 +160,7 @@ describe("scope-check — the cycle-scope gate (§5.3)", () => {
   test("a PR to develop closing work on the cycle is exit 0", async () => {
     gh.reset();
     gh.set({
-      milestones: [{ title: "v1.0.0", state: "open" }, { title: "v2.0.0", state: "open" }],
+      milestones: [{ number: 1, title: "v1.0.0", state: "open" }, { number: 2, title: "v2.0.0", state: "open" }],
       issues: [],
       prScope: scope("develop", [{ number: 5, milestone: "v1.0.0" }]),
     });
