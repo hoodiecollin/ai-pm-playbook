@@ -1017,6 +1017,51 @@ paid once, while the cost of planning against a stale claim is unbounded and dis
 
 ---
 
+### 9.8 Parallel agents — what they must be given, and what they may conclude
+
+Point several agents at several issues at once and each reads only its own. It then confidently
+proposes something that breaks, duplicates, or contradicts what a sibling issue already decided.
+That is not a discipline failure. §1 bans a third decomposition axis and epics give hierarchy only,
+so there is nowhere in the model to record that two issues constrain each other — **the agent is not
+failing to look; there is nothing to look at.**
+
+**Context is pushed, never fetched.** A rule telling agents to read their siblings first fails under
+exactly the conditions that motivate it: an agent optimising its own narrow task skips a
+discretionary read. So the fan-out step assembles the neighbourhood and puts it in the brief. An
+agent is *given* its context.
+
+**The neighbourhood is derived, never recorded.** From explicit `#N` references in either direction,
+the epic parent and its other children, a shared surface, and a shared milestone. Nothing about a
+relation is stored anywhere, so nothing can drift — the same argument §8 makes for the board. A
+`related-to` label would be a third axis in disguise, needing its own invariant to stay honest and
+decaying exactly like the `Priority`/`Size` fields §1 exists to ban.
+
+**Breadth is complete; depth is rationed.** The neighbourhood arrives as two layers:
+
+- **A roster naming every neighbour, never truncated.** This is the property that cannot be traded
+  for size. An agent that does not know a neighbour exists is the failure being fixed, so anything
+  not expanded is still listed, with an explicit count and the command that expands it.
+- **Depth for the closest ring only**, composed of each neighbour's own §9.6 summary rather than its
+  raw body. An excerpt says what a neighbour *contains*; a summary says what it is. Closed issues
+  are roster-only — closed work is reference, not context.
+
+**What a parallel agent may conclude.** An agent that can see the edge of its neighbourhood but not
+all of it may produce **gate 1 material**: a design that states what it would disturb across that
+neighbourhood. It may **not** jump to implementation across a neighbourhood it cannot fully see.
+Two agents proposing conflicting designs for genuinely coupled issues is the expected outcome, and
+declaring blast radius is what surfaces the conflict for a human — it does not resolve it, and it is
+not meant to.
+
+**The code map is written onto the issue at gate 2.** Entry points, call paths, files that must
+change — each cited by path, and carrying the commit it was derived at. The next agent reads the map
+instead of rediscovering it. A map is a **claim** about ground truth (§1) and therefore rots, so
+§9.7's before-gate verify pass re-checks it. A stale map that reads as current is the §9.6 failure
+in a new location.
+
+**Relations neither issue's own summary can carry** — "these two must ship together" — belong on the
+**epic**. That is the model's existing home for a relation between issues, with one owner and a body
+rather than an append-only log.
+
 ## 10. Documentation discipline
 
 - **Design docs live as gate-1 issues, not files** (§9). Filing work is a small workflow: a dedup
