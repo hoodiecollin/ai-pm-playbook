@@ -58,7 +58,7 @@ export const RULES: RuleMeta[] = [
   { rule: "PM012", section: "§7.1", severity: "error", summary: "An `epic` never carries gates." },
   { rule: "PM013", section: "§9", severity: "error", summary: "A work item on the focused milestone carries its complete gate set." },
   { rule: "PM014", section: "§5.6", severity: "error", summary: "`hotfix` requires `bugfix` and a milestone, and never carries `experiment` or `epic`." },
-  { rule: "PM015", section: "§5.6", severity: "error", summary: "A patch milestone holds one hotfix work item and its gates, nothing else." },
+  { rule: "PM015", section: "§5.6", severity: "error", summary: "A patch milestone holds one hotfix work item, its gates, and any release-gate — no other work." },
   { rule: "PM016", section: "§9", severity: "warn", summary: "Every gate is closed but the work item is still open." },
   { rule: "PM100", section: "—", severity: "warn", summary: "Vendored `.pm-playbook/` differs from the installed package." },
   { rule: "PM101", section: "—", severity: "warn", summary: "Agent instruction file is missing the pm-playbook stanza." },
@@ -331,11 +331,17 @@ export function checkIssues(
     // PM015 — a patch milestone holds one hotfix and its gates, nothing else (§5.6). A patch that
     // accumulates "while we're in there" work has lost the boundedness that made it cheap, and a
     // patch release nobody designed becomes a minor release nobody reviewed.
-    if (scheduled && isPatchMilestone(i.milestone!) && !isGate && !has("hotfix")) {
+    //
+    // `release-gate` is exempt for the reason 2e594f3 exempted it from PM010 and PM013: it is a
+    // release OBLIGATION, not work, so it was never what "nothing else" meant to exclude. Without
+    // the exemption the rule inverted — §5.2 makes a release-gate the asset ledger's only home and
+    // §5.6 refuses to waive the ledger for a patch, so the compliant milestone failed while the one
+    // with the ledger deleted passed. The rule rewarded the breach (#28).
+    if (scheduled && isPatchMilestone(i.milestone!) && !isGate && !has("hotfix") && !has("release-gate")) {
       out.push({
         rule: "PM015", severity: "error", section: "§5.6", issue: ref(i),
         message: `#${i.number} is on patch milestone \`${i.milestone}\` but is not a \`hotfix\`. A patch milestone exists to ship one bounded, warranted fix.`,
-        fix: `Move it to the cycle in flight, or label it \`hotfix\` if it genuinely meets the §5.6 eligibility tests: gh issue edit ${i.number} --milestone <vX.Y.0>`,
+        fix: `Move it to the cycle in flight: gh issue edit ${i.number} --milestone <vX.Y.0> — or, if it genuinely meets the §5.6 eligibility tests, label it \`bugfix,hotfix\` (PM014: \`hotfix\` is never alone).`,
       });
     }
 
