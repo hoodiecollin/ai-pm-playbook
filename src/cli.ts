@@ -19,6 +19,7 @@ import { push } from "./commands/push.js";
 import { create } from "./commands/create.js";
 import { comment } from "./commands/comment.js";
 import { ladder } from "./commands/ladder.js";
+import { milestone } from "./commands/milestone.js";
 import { materialize } from "./commands/materialize.js";
 import { releaseCheck } from "./commands/release-check.js";
 import { scopeCheck } from "./commands/scope-check.js";
@@ -47,6 +48,8 @@ COMMANDS
                           sets. Idempotent and resumable. Previews by default; --yes to apply.
   ladder                  Where every work item sits on the commitment ladder (derived from gate
                           state, so no filter can answer it).
+  milestone [vX.Y.Z]      What work is left on a release, grouped by epic and readable on a phone.
+                          Reads the mirror; defaults to the cycle in flight.
   release-check <vX.Y.Z>  Can this milestone be tagged? Exit 1 if gated or incomplete.
   scope-check <pr>        Cycle-scope gate (§5.3): refuse a PR to the integration branch that
                           closes work milestoned past the cycle in flight.
@@ -165,6 +168,8 @@ async function main(): Promise<number> {
       return materialize(args, repoRoot);
     case "ladder":
       return ladder(args, repoRoot);
+    case "milestone":
+      return milestone(args, repoRoot, args._[1]);
     case "release-check":
       return releaseCheck(args, repoRoot, args._[1]);
     case "scope-check":
