@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { DEFAULT_AGENT_FILE, detectAgentFiles, stanzaStatus } from "../lib/agent-files.js";
-import { RULES, checkIssues, type Violation } from "../lib/invariants.js";
+import { RULES, checkBodies, checkIssues, type Violation } from "../lib/invariants.js";
 import { detectRepo, epicSubIssueCounts, fetchParentage, listIssues, listMilestones, requireGh } from "../lib/gh.js";
 import { currentCycle } from "../lib/model.js";
 import { BACKLOG_DIR, VENDOR_DIR, detectDrift } from "../lib/vendor.js";
@@ -144,6 +144,9 @@ export async function check(args: Args, repoRoot: string): Promise<number> {
       const milestones = readTable<{ title: string; state: string }[]>(root, MILESTONES_FILE);
       if (!milestones) notes.push("PM013 skipped: no milestone table — run `pull` to record one.");
       violations.push(...checkIssues(issues, null, parentage, milestones ? currentCycle(milestones) : null));
+      // PM017 reads BODIES, which only the mirror has — `Issue` carries none. This is the only
+      // tier where it can run at all; the networked tier says so rather than passing silently.
+      violations.push(...checkBodies(entities.values(), repo));
       notes.push(`Linted the materialized backlog at ${VENDOR_DIR}/${BACKLOG_DIR} — run \`pull\` if it may be stale.`);
     }
   }
@@ -170,6 +173,8 @@ export async function check(args: Args, repoRoot: string): Promise<number> {
       // same derivation `scope-check` uses; deriving it twice beats configuring it once.
       const cycle = currentCycle(await listMilestones(repo));
       violations.push(...checkIssues(issues, counts, parentage, cycle));
+      // PM017 needs bodies and this tier deliberately does not fetch them (see `fetchParentage`).
+      notes.push("PM017 skipped: body shape is checkable only against the mirror — run `pull`, then `check --no-remote`.");
     } catch (err) {
       if (!json) console.error(`ERROR: ${(err as Error).message}`);
       return 2;
