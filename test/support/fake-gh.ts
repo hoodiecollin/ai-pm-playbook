@@ -46,6 +46,7 @@ export interface FakeData {
   backlog?: BacklogEntity[];
   parentage?: realGh.Parentage;
   subIssueCounts?: Map<number, number> | null;
+  prScope?: realGh.PullRequestScope;
   /** Number handed back by `createIssue`, incremented per call. */
   nextIssueNumber?: number;
 }
@@ -119,7 +120,8 @@ export function installFakeGh(initial: FakeData = {}): FakeGh {
         data.parentage ?? { parentOf: new Map(), all: new Map() }),
       epicSubIssueCounts: recordAsync("epicSubIssueCounts", () => data.subIssueCounts ?? null),
       pullRequestScope: recordAsync("pullRequestScope", () => {
-        throw new Error("pullRequestScope not configured for this test");
+        if (!data.prScope) throw new Error("pullRequestScope not configured for this test");
+        return data.prScope;
       }),
 
       // --- writes ----------------------------------------------------------------------------
