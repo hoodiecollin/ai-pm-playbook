@@ -167,6 +167,25 @@ describe("PM015 — a patch milestone holds only the hotfix (§5.6)", () => {
   test("a `.0` milestone is not a patch milestone", () => {
     expect(rules([issue({ labels: ["improvement"], milestone: "v1.2.0" })])).toEqual([]);
   });
+
+  /*
+   * #28. §5.2 makes a `release-gate` issue the asset ledger's only home, and §5.6 says a patch does
+   * not waive the ledger — so the compliant patch milestone is the one PM015 used to reject, while
+   * the milestone with the ledger deleted passed clean. The rule rewarded the breach.
+   *
+   * A `release-gate` is a release obligation, not work, which is the exemption 2e594f3 already gave
+   * PM010 and PM013. This is that same exemption reaching the last rule that lacked it.
+   */
+  test("silent for the release-gate carrying the §5.2 asset ledger", () => {
+    expect(rules([issue({ labels: ["release-gate"], milestone: "v1.2.1" })])).toEqual([]);
+  });
+  test("silent for a release-gate that also carries a work type, which stays accepted", () => {
+    expect(rules([issue({ labels: ["improvement", "release-gate"], milestone: "v1.2.1" })])).toEqual([]);
+  });
+  test("the exemption does not widen: ordinary work on a patch milestone still flags", () => {
+    expect(rules([issue({ labels: ["improvement"], milestone: "v1.2.1" })])).toContain("PM015");
+    expect(rules([issue({ labels: ["bugfix"], milestone: "v1.2.1" })])).toContain("PM015");
+  });
 });
 
 describe("PM004 / PM005 — release-gate (§3.2, §5.2)", () => {
