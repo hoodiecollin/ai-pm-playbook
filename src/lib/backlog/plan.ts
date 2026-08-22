@@ -53,6 +53,7 @@ export function planSync(
   base: Map<number, string>,
   local: Map<number, BacklogEntity>,
   remote: Map<number, BacklogEntity>,
+  covered?: Set<number> | null,
 ): SyncPlan {
   const plan: SyncPlan = { push: [], pull: [], conflict: [], remove: [], orphaned: [], unchanged: [] };
 
@@ -60,6 +61,19 @@ export function planSync(
     const baseHash = base.get(number) ?? null;
     const localEntity = local.get(number) ?? null;
     const remoteEntity = remote.get(number) ?? null;
+
+    /*
+     * Absence means DELETED only within what the fetch was asked to cover. Outside it, absence
+     * means "not looked at" — and the two are indistinguishable from here, which is the whole
+     * hazard: a scoped fetch without this guard reads every out-of-scope issue as deleted and
+     * quietly destroys the local mirror of all of them.
+     *
+     * Absent, everything is covered, which is exactly today's behavior.
+     */
+    if (!remoteEntity && covered && !covered.has(number)) {
+      if (localEntity) plan.unchanged.push(number);
+      continue;
+    }
 
     // Gone from the remote. GitHub is authoritative, so this is a local deletion rather than
     // something to push back — an issue can be deleted or transferred out from under us.

@@ -120,7 +120,25 @@ export function ancestorsOf(e: BacklogEntity, entities: Map<number, BacklogEntit
  * the old directory the tree would hold two copies and `readTree` would see whichever it walked
  * last. Returns the directories removed.
  */
-export function writeTree(root: string, entities: Map<number, BacklogEntity>): string[] {
+export function writeTree(
+  root: string,
+  entities: Map<number, BacklogEntity>,
+  covered?: Set<number> | null,
+): string[] {
+  /*
+   * Under a scoped write, an entity the fetch never looked at must not be pruned. Its directory is
+   * indistinguishable from a deleted issue's from here — the difference is knowable only from what
+   * the refresh was ASKED to cover, which is why the covered set is passed in rather than inferred.
+   *
+   * Absent, every path is prunable, which is exactly today's behavior.
+   *
+   * Computed BEFORE anything is written, and this ordering is load-bearing: `writeEntity` renders a
+   * moved entity at its new path while the old one is still there, so a snapshot taken afterwards
+   * sees both and resolves the number to whichever it walked last — leaving the stale directory
+   * unprunable and the tree holding two copies. That is the exact failure pruning exists to prevent.
+   */
+  const prunable = covered ? directoriesOf(root, covered) : null;
+
   const keep = new Set<string>();
   for (const e of entities.values()) {
     keep.add(writeEntity(root, e, ancestorsOf(e, entities)));
@@ -131,13 +149,38 @@ export function writeTree(root: string, entities: Map<number, BacklogEntity>): s
     if (!rel.endsWith(`/${BODY_FILE}`)) continue;
     const dir = dirname(rel);
     if (keep.has(dir)) continue;
+    if (prunable && !prunable.has(dir)) continue;
     stale.push(dir);
     rmSync(join(root, dir), { recursive: true, force: true });
   }
   return stale.sort();
 }
 
-/** Set aside a local edit that lost to a remote change, so nothing is silently destroyed. */
+/**
+ * Which on-disk directories belong to the covered issue numbers.
+ *
+ * Read from each directory's own `body.md` frontmatter rather than re-rendered from the entity: the
+ * literal path is what the pruner walks, and a hand-moved or legacy directory would not match a
+ * freshly rendered one. Parsing the number out of the directory NAME would not work either — a gate
+ * directory is `gate-<n>--<number>`, so the number is not the leading segment.
+ */
+function directoriesOf(root: string, covered: Set<number>): Set<string> {
+  const dirs = new Set<string>();
+  if (!existsSync(root)) return dirs;
+
+  for (const rel of walk(root, root, (d) => NON_ENTITY_ROOTS.has(d.split("/")[0]!))) {
+    if (!rel.endsWith(`/${BODY_FILE}`)) continue;
+    try {
+      const front = parseBody(readFileSync(join(root, rel), "utf8"));
+      if (covered.has(front.number)) dirs.add(dirname(rel));
+    } catch {
+      // An unparseable body cannot be attributed to an issue, so it is not claimed as covered —
+      // leaving it alone is the safe direction.
+    }
+  }
+  return dirs;
+}
+
 export function setAsideConflict(root: string, e: BacklogEntity, stamp: string): string {
   const dir = join(CONFLICTS_DIR, `${e.number}-${stamp}`);
   write(join(root, dir, BODY_FILE), renderBody(e));
@@ -181,8 +224,19 @@ export function readIndexRepo(root: string): string | null {
  * Written LAST by `pull`, on purpose: a crash mid-write then leaves a tree with no index, which is
  * detectable and forces a clean re-pull, rather than an index that lies about a half-written tree.
  */
-export function writeIndex(root: string, hashes: Map<number, string>, repo: string): void {
-  const sorted = [...hashes.entries()].sort((a, b) => a[0] - b[0]);
+export function writeIndex(
+  root: string,
+  hashes: Map<number, string>,
+  repo: string,
+  merge = false,
+): void {
+  /*
+   * A scoped pull knows the hashes for its own scope and nothing else. Replacing the index would
+   * drop every other entity's base hash — and losing the base is what makes a pending local edit
+   * stop being recognisable as one, so the edit silently becomes "never pulled" on the next run.
+   */
+  const combined = merge ? new Map([...readIndex(root), ...hashes]) : hashes;
+  const sorted = [...combined.entries()].sort((a, b) => a[0] - b[0]);
   const payload = { repo, hashes: Object.fromEntries(sorted.map(([k, v]) => [String(k), v])) };
   write(join(root, SYNC_DIR, INDEX_FILE), JSON.stringify(payload, null, 2) + "\n");
 }
