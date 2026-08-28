@@ -154,37 +154,114 @@ describe("PM014 — the hotfix shape (§5.6)", () => {
   });
 });
 
-describe("PM015 — a patch milestone holds only the hotfix (§5.6)", () => {
-  test("flags ordinary work parked on a patch milestone", () => {
-    expect(rules([issue({ labels: ["improvement"], milestone: "v1.2.1" })])).toContain("PM015");
-  });
-  test("silent for the hotfix itself", () => {
+/*
+ * §5.6 calls PM015 a BOUNDEDNESS invariant — "One hotfix, one milestone". Until 3.0.0 it checked
+ * labels and never counted anything, so it was wrong in both directions: three hotfixes on one
+ * patch milestone returned `[]`, while a single bounded `improvement` was refused.
+ *
+ * The rule now counts work items and ignores their type. The scenarios below keep the four cases
+ * that were already right and add the ones that were not.
+ */
+describe("PM015 — a patch milestone holds exactly one work item (§5.6)", () => {
+  test("silent for a lone hotfix, the classic case", () => {
     expect(rules([issue({ labels: ["bugfix", "hotfix"], milestone: "v1.2.1" })])).toEqual([]);
   });
-  test("silent for the hotfix's gates, which ride the same milestone", () => {
+  test("silent for its gates, which ride the same milestone", () => {
     expect(rules([issue({ labels: ["bugfix:gate-1"], milestone: "v1.2.1" })])).toEqual([]);
-  });
-  test("a `.0` milestone is not a patch milestone", () => {
-    expect(rules([issue({ labels: ["improvement"], milestone: "v1.2.0" })])).toEqual([]);
   });
 
   /*
-   * #28. §5.2 makes a `release-gate` issue the asset ledger's only home, and §5.6 says a patch does
-   * not waive the ledger — so the compliant patch milestone is the one PM015 used to reject, while
-   * the milestone with the ledger deleted passed clean. The rule rewarded the breach.
-   *
-   * A `release-gate` is a release obligation, not work, which is the exemption 2e594f3 already gave
-   * PM010 and PM013. This is that same exemption reaching the last rule that lacked it.
+   * #28. §5.2 makes a `release-gate` issue the asset ledger's only home, and §5.6 does not waive
+   * the ledger for a patch — so the compliant milestone was the one PM015 rejected. That exemption
+   * is the regression risk of rewriting this rule, hence two cases rather than one.
    */
   test("silent for the release-gate carrying the §5.2 asset ledger", () => {
     expect(rules([issue({ labels: ["release-gate"], milestone: "v1.2.1" })])).toEqual([]);
   });
-  test("silent for a release-gate that also carries a work type, which stays accepted", () => {
+  test("silent for a release-gate that also carries a work type", () => {
     expect(rules([issue({ labels: ["improvement", "release-gate"], milestone: "v1.2.1" })])).toEqual([]);
   });
-  test("the exemption does not widen: ordinary work on a patch milestone still flags", () => {
-    expect(rules([issue({ labels: ["improvement"], milestone: "v1.2.1" })])).toContain("PM015");
-    expect(rules([issue({ labels: ["bugfix"], milestone: "v1.2.1" })])).toContain("PM015");
+
+  test("a `.0` milestone is not a patch milestone, however much work it holds", () => {
+    expect(rules([
+      issue({ labels: ["improvement"], milestone: "v1.2.0" }),
+      issue({ labels: ["bugfix"], milestone: "v1.2.0" }),
+      issue({ labels: ["improvement"], milestone: "v1.2.0" }),
+    ])).toEqual([]);
+  });
+
+  /*
+   * The relaxation. `hotfix` eligibility (§5.6) requires a defect in RELEASED behavior, which
+   * refuses a bounded CI or hygiene change that legitimately warrants its own patch line. The
+   * boundedness the section actually protects is a count, not a type.
+   */
+  test("silent for a lone improvement — type no longer decides", () => {
+    expect(rules([issue({ labels: ["improvement"], milestone: "v1.2.1" })])).toEqual([]);
+  });
+  test("silent for a lone bugfix that is not labelled hotfix", () => {
+    expect(rules([issue({ labels: ["bugfix"], milestone: "v1.2.1" })])).toEqual([]);
+  });
+
+  /*
+   * The half that was measured rather than reported: before 3.0.0 these returned `[]`, so the
+   * accumulation §5.6 exists to prevent passed clean while the prose called it an invariant.
+   */
+  test("flags TWO hotfixes on one patch milestone", () => {
+    expect(rules([
+      issue({ labels: ["bugfix", "hotfix"], milestone: "v1.2.1" }),
+      issue({ labels: ["bugfix", "hotfix"], milestone: "v1.2.1" }),
+    ])).toEqual(["PM015", "PM015"]);
+  });
+  test("flags every item on an over-full milestone, not just the surplus", () => {
+    const out = checkIssues([
+      issue({ labels: ["bugfix", "hotfix"], milestone: "v1.2.1" }),
+      issue({ labels: ["improvement"], milestone: "v1.2.1" }),
+      issue({ labels: ["bugfix"], milestone: "v1.2.1" }),
+    ]).filter((v) => v.rule === "PM015");
+    expect(out).toHaveLength(3);
+    // The message has to name what each item is in conflict with, or one violation read on its
+    // own is unactionable.
+    for (const v of out) expect(v.message).toContain("3 work items");
+  });
+
+  /*
+   * The composition case a naive `issues.length > 1` breaks: one work item may be accompanied by
+   * any number of its gates and a release-gate, and none of them count toward the limit.
+   */
+  test("one work item + its gates + a release-gate is clean", () => {
+    expect(rules([
+      issue({ labels: ["bugfix", "hotfix"], milestone: "v1.2.1" }),
+      issue({ labels: ["bugfix:gate-1"], milestone: "v1.2.1" }),
+      issue({ labels: ["bugfix:gate-2"], milestone: "v1.2.1" }),
+      issue({ labels: ["release-gate"], milestone: "v1.2.1" }),
+    ])).toEqual([]);
+  });
+  test("an epic does not count toward the limit", () => {
+    expect(rules([
+      issue({ labels: ["epic"], milestone: "v1.2.1" }),
+      issue({ labels: ["improvement"], milestone: "v1.2.1" }),
+    ])).toEqual([]);
+  });
+  test("grouping is per milestone — two patches with one item each are both clean", () => {
+    expect(rules([
+      issue({ labels: ["improvement"], milestone: "v1.2.1" }),
+      issue({ labels: ["bugfix", "hotfix"], milestone: "v1.2.2" }),
+    ])).toEqual([]);
+  });
+
+  /*
+   * Gate 1's explicit reason for a structural predicate rather than `workTypeOf`, which returns
+   * null for zero OR multiple types. Deriving the count from it would make PM015 stop enforcing
+   * anything the moment PM010 is dirty — an invariant that evaporates in the presence of another
+   * violation is the failure this whole change is about.
+   */
+  test("a mislabelled item still counts, so PM015 does not depend on PM010 being clean", () => {
+    const out = checkIssues([
+      issue({ labels: ["improvement", "bugfix"], milestone: "v1.2.1" }),
+      issue({ labels: ["improvement"], milestone: "v1.2.1" }),
+    ]).map((v) => v.rule);
+    expect(out).toContain("PM010");
+    expect(out.filter((r) => r === "PM015")).toHaveLength(2);
   });
 });
 
