@@ -60,7 +60,7 @@ export const RULES: RuleMeta[] = [
   { rule: "PM012", section: "§7.1", severity: "error", summary: "An `epic` never carries gates." },
   { rule: "PM013", section: "§9", severity: "error", summary: "A work item on the focused milestone carries its complete gate set." },
   { rule: "PM014", section: "§5.6", severity: "error", summary: "`hotfix` requires `bugfix` and a milestone, and never carries `experiment` or `epic`." },
-  { rule: "PM015", section: "§5.6", severity: "error", summary: "A patch milestone holds one hotfix work item, its gates, and any release-gate — no other work." },
+  { rule: "PM015", section: "§5.6", severity: "error", summary: "A patch milestone holds exactly one work item, its gates, and any release-gate — no other work." },
   { rule: "PM016", section: "§9", severity: "warn", summary: "Every gate is closed but the work item is still open." },
   { rule: "PM017", section: "§9.6", severity: "warn", summary: "An open work item or epic opens with the plain-English summary slot." },
   { rule: "PM100", section: "—", severity: "warn", summary: "Vendored `.pm-playbook/` differs from the installed package." },
@@ -103,6 +103,61 @@ export interface Parentage {
  * still a gate. Scoping here would mean a work item whose gate 1 is closed reads as though gate 1
  * were never created — which is precisely the state PM013 exists to catch, reported backwards.
  */
+/**
+ * PM015 — a patch milestone holds exactly one work item (§5.6).
+ *
+ * §5.6 states this as "One hotfix, one milestone", and until 3.0.0 the check tested the `hotfix`
+ * LABEL and never counted anything. That was wrong in both directions at once: three hotfixes on
+ * one patch milestone passed clean, while a single bounded item that was not a defect in released
+ * behavior — a CI repair, a source-hygiene sweep — was refused because it could not honestly carry
+ * the label. The property §5.6 actually protects is boundedness, so the rule counts.
+ *
+ * Eligibility stays human doctrine asserted in gate 1, which is the only place it can live:
+ * "waiting for the next release is unacceptable" is a judgement, and the label was never more than
+ * a proxy for someone having made it.
+ *
+ * WHAT COUNTS is structural rather than derived from `workTypeOf`, which returns null for zero OR
+ * multiple type labels. Counting through it would make this rule stop enforcing anything the moment
+ * PM010 is dirty — an invariant that evaporates in the presence of another violation is the exact
+ * failure being fixed here. A gate, a `release-gate` and an `epic` are excluded because they are
+ * not work, which is the same boundary PM010 and PM013 already draw.
+ *
+ * EVERY member of an over-full milestone is flagged, not just the surplus: there is no principled
+ * way to decide which one "belongs", and flagging the 2nd-and-later would encode a first-wins
+ * scheduling opinion the linter has no basis for. The message names the count so a single violation
+ * read on its own is actionable.
+ *
+ * SCOPE: this is aggregate, so it under-counts when the caller passes a subset — `create` lints
+ * only projected drafts, `push` only in-scope entries. That fails safe (false negative, never false
+ * positive), and PM106 already reports a partial mirror rather than letting a clean run over a
+ * subset read as a clean run over the backlog.
+ */
+function checkPatchMilestones(issues: Issue[]): Violation[] {
+  const byMilestone = new Map<string, Issue[]>();
+  for (const i of issues) {
+    if (i.milestone === null || !isPatchMilestone(i.milestone)) continue;
+    if (gateOf(i.labels) !== null) continue;
+    if (i.labels.includes("release-gate") || i.labels.includes("epic")) continue;
+    const held = byMilestone.get(i.milestone);
+    if (held) held.push(i);
+    else byMilestone.set(i.milestone, [i]);
+  }
+
+  const out: Violation[] = [];
+  for (const [milestone, items] of byMilestone) {
+    if (items.length <= 1) continue;
+    const all = items.map((i) => `#${i.number}`).join(", ");
+    for (const i of items) {
+      out.push({
+        rule: "PM015", severity: "error", section: "§5.6", issue: ref(i),
+        message: `\`${milestone}\` is a patch milestone holding ${items.length} work items (${all}). A patch milestone holds exactly one, so that a patch release stays the bounded thing it was cut for.`,
+        fix: `Keep one and move the rest to the cycle in flight: gh issue edit <n> --milestone <vX.Y.0> — or give one its own patch milestone.`,
+      });
+    }
+  }
+  return out;
+}
+
 function checkStructure(parentage: Parentage, cycle: string | null): Violation[] {
   const out: Violation[] = [];
 
@@ -238,6 +293,7 @@ export function checkIssues(
   const out: Violation[] = [];
 
   if (parentage) out.push(...checkStructure(parentage, cycle ?? null));
+  out.push(...checkPatchMilestones(issues));
 
   for (const i of issues) {
     const has = (l: string) => i.labels.includes(l);
@@ -332,22 +388,6 @@ export function checkIssues(
       });
     }
 
-    // PM015 — a patch milestone holds one hotfix and its gates, nothing else (§5.6). A patch that
-    // accumulates "while we're in there" work has lost the boundedness that made it cheap, and a
-    // patch release nobody designed becomes a minor release nobody reviewed.
-    //
-    // `release-gate` is exempt for the reason 2e594f3 exempted it from PM010 and PM013: it is a
-    // release OBLIGATION, not work, so it was never what "nothing else" meant to exclude. Without
-    // the exemption the rule inverted — §5.2 makes a release-gate the asset ledger's only home and
-    // §5.6 refuses to waive the ledger for a patch, so the compliant milestone failed while the one
-    // with the ledger deleted passed. The rule rewarded the breach (#28).
-    if (scheduled && isPatchMilestone(i.milestone!) && !isGate && !has("hotfix") && !has("release-gate")) {
-      out.push({
-        rule: "PM015", severity: "error", section: "§5.6", issue: ref(i),
-        message: `#${i.number} is on patch milestone \`${i.milestone}\` but is not a \`hotfix\`. A patch milestone exists to ship one bounded, warranted fix.`,
-        fix: `Move it to the cycle in flight: gh issue edit ${i.number} --milestone <vX.Y.0> — or, if it genuinely meets the §5.6 eligibility tests, label it \`bugfix,hotfix\` (PM014: \`hotfix\` is never alone).`,
-      });
-    }
 
     // PM007 — an epic decomposes via native sub-issues, not checkboxes and not a Project field.
     if (has("epic") && subIssueCounts && subIssueCounts.get(i.number) === 0) {

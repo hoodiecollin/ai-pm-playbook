@@ -86,7 +86,7 @@ paragraph they half-loaded.
 | `PM012` | an `epic` never carries gates | 7.1 |
 | `PM013` | a work item on the focused milestone carries its complete gate set | 9 |
 | `PM014` | `hotfix` ⇒ `bugfix` + milestone, and ⊕ {`experiment`, `epic`} | 5.6 |
-| `PM015` | a patch milestone holds one hotfix and its gates, nothing else | 5.6 |
+| `PM015` | a patch milestone holds exactly one work item and its gates, nothing else | 5.6 |
 | `PM016` | every gate closed but the work item still open *(warn)* | 9 |
 | `PM100` | vendored doctrine matches the installed package *(warn)* | — |
 | `PM101` | agent instruction files carry the stanza *(warn)* | — |
