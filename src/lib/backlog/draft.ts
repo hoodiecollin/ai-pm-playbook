@@ -15,7 +15,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { parseGateLabel } from "../model.js";
+import { isLegacyGateLabel, parseGateLabel } from "../model.js";
 import { BODY_FILE, SUBISSUES_DIR } from "./paths.js";
 import type { Violation } from "../invariants.js";
 
@@ -153,7 +153,7 @@ export function validateDrafts(drafts: Draft[], labels: string[], milestones: st
         fix: `Create it: pm-playbook bootstrap --repo <o/n> --milestone ${d.milestone}`,
       });
     }
-    // Structural: only an epic decomposes (§7.1, PM105). Enforced here so it cannot even be filed.
+    // Structural: only an epic decomposes (§7, PM105). Enforced here so it cannot even be filed.
     if (d.children.length && d.kind !== "epic") {
       out.push({
         slug: d.slug,
@@ -168,11 +168,11 @@ export function validateDrafts(drafts: Draft[], labels: string[], milestones: st
         fix: `Flatten ${d.slug}/${SUBISSUES_DIR} into the parent epic.`,
       });
     }
-    // Gates are TOOL-MATERIALIZED and never hand-drafted (§9). If a human could file one, "gate
+    // Gates are TOOL-MATERIALIZED and never hand-drafted (§2). If a human could file one, "gate
     // absent" would stop meaning "not materialized yet" and start meaning either that or "nobody
-    // wrote it" — which is precisely the ambiguity §5.2's absent-vs-"no change" row argument warns
+    // wrote it" — which is precisely the ambiguity §5's absent-vs-"no change" row argument warns
     // about, and the reason PM013 can be trusted at all.
-    const gate = d.labels.find((l) => parseGateLabel(l));
+    const gate = d.labels.find((l) => parseGateLabel(l) || isLegacyGateLabel(l));
     if (gate) {
       out.push({
         slug: d.slug,

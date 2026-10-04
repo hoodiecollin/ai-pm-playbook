@@ -1,0 +1,13 @@
+{
+  "id": "forgedb-519",
+  "repo": "hoodiecollin/forgedb",
+  "issue": 519,
+  "commit": "65914a514b6fd7e851847560278a8763cb7f67e4",
+  "intent": "Agents in this repo have repeatedly used grep to find symbols and gotten silently wrong answers, including counts that steered design decisions. The goal is to adopt semantic symbol search — Serena (rust-analyzer and other language servers over MCP) plus ast-grep for structural patterns — with a PreToolUse hook that stops identifier-shaped text searches. Lookups must see the whole crate graph, including code behind non-default cargo features such as `forgedb-auth`'s `jwks-http` and the root `lsp` feature.",
+  "approach": "Commit `.mcp.json` (Serena, `--context claude-code`) and `.serena/project.yml` with languages `rust`/`typescript`/`go`, `scratchpad/` excluded, and `ls_specific_settings.rust.initializationOptions.cargo.allFeatures: true` (restating `buildScripts`, since the `cargo` key replaces Serena's own). A `.claude/hooks/no-grep.sh` PreToolUse hook blocks only identifier-shaped patterns and is the single enforcement point. Design D4 states: \"`cargo metadata` resolves and `cargo check --workspace --all-features` **passes** (verified), so there are no mutually exclusive feature sets to enumerate around and the simple form is correct. Without it, `forgedb-auth`'s non-default `jwks-http` and the root `lsp` feature are outside the crate graph.\" An empty LSP result is treated as not-proof-of-absence and cross-checked with ast-grep.",
+  "falseClaim": "That `allFeatures: true` in `.serena/project.yml` is verified to take effect because `cargo check --workspace --all-features` passes.",
+  "groundTruth": "`cargo check --all-features` only proves the workspace compiles under all features; Serena applies `ls_specific_settings` only for paths matching `trusted_project_path_patterns` in the machine-global `~/.serena/serena_config.yml` (empty by default) and otherwise logs \"is not trusted, ignoring LS-specific settings\" — so a `jwks-http`-gated symbol (`JwksHttpCache`) returned \"0 while having 3\" references and \"the setting has never applied\".",
+  "claimPattern": "all[_ -]?features|allFeatures|jwks[_-]http|feature[- ]gated|non[- ]default feature",
+  "disproofPattern": "not trusted|ignoring LS[- ]specific|trusted_project_path_patterns|serena_config\\.yml|JwksHttpCache.*(0|zero|empty|missing)|(0|zero|no) (references|results).*jwks|never (applied|forwarded)|not forwarded",
+  "probeHint": "With the Serena MCP server started on the checkout, call `find_symbol`/`find_referencing_symbols` for `JwksHttpCache` (behind `jwks-http`) with and without `allFeatures: true` — results are identical (0 references) — and read Serena's log for `is not trusted, ignoring LS-specific settings`."
+}

@@ -19,6 +19,7 @@ import { backlogRoot, readIndex, readTree, writeIndex, writeTree } from "../lib/
 import { planSync } from "../lib/backlog/plan.js";
 import { projectionHash } from "../lib/backlog/project.js";
 import { checkIssues } from "../lib/invariants.js";
+import { gateOf } from "../lib/model.js";
 import { asIssue, snapshot } from "../lib/backlog/lint.js";
 import { bool, str, type Args } from "../lib/args.js";
 import type { BacklogEntity } from "../lib/backlog/model.js";
@@ -70,6 +71,16 @@ export async function push(args: Args, repoRoot: string): Promise<number> {
   const violations = checkIssues(inScope.map((e) => asIssue(e, repo)), null, parentage)
     .filter((v) => v.severity === "error");
 
+  /*
+   * A gate is never closed through the mirror. Closing one means a person approved it, and `push`
+   * runs as whoever holds the token — usually an agent. The hook refuses `gh issue close` on a gate
+   * for the same reason; without this, editing `state: CLOSED` into a gate's frontmatter would be
+   * the way around it. A proof gate closes on evidence through `pm-playbook prove` instead.
+   */
+  const gateClosures = plan.push.filter(
+    (e) => gateOf(e.labels) !== null && e.state === "CLOSED" && remote.get(e.number)?.state === "OPEN",
+  );
+
   if (json) {
     console.log(JSON.stringify({
       repo,
@@ -77,8 +88,19 @@ export async function push(args: Args, repoRoot: string): Promise<number> {
       conflict: plan.conflict.map((c) => c.number),
       orphaned: plan.orphaned,
       violations,
-      applied: apply && violations.length === 0,
+      gateClosures: gateClosures.map((e) => e.number),
+      applied: apply && violations.length === 0 && gateClosures.length === 0,
     }, null, 2));
+  }
+
+  if (gateClosures.length) {
+    if (!json) {
+      console.error(`✗ This push would close gate(s) ${gateClosures.map((e) => `#${e.number}`).join(", ")}. Nothing was sent.`);
+      console.error("  A gate is closed by a human — in the GitHub UI, or by them running `gh issue close`.");
+      console.error("  A proof gate may instead close on evidence: pm-playbook prove <n> --yes");
+      console.error("  Set the gate's `state` back to OPEN locally, then push the rest.");
+    }
+    return 1;
   }
 
   if (violations.length) {

@@ -111,4 +111,16 @@ describe("push — refusals", () => {
     expect(await run([], root)).toBe(1);
     expect(gh.mutations()).toEqual([]);
   });
+
+  test("closing a gate through the mirror is refused — a gate is closed by a human", async () => {
+    gh.reset();
+    const root = tempRepoRoot();
+    const work = entity({ number: 1 });
+    const gate = entity({ number: 2, kind: "gate", parent: 1, labels: ["gate:intent"] });
+    seedBacklog(root, [work, { ...gate, state: "CLOSED" }], { base: [work, gate] });
+    gh.set({ backlog: [work, gate] });
+
+    expect(await run(["--yes"], root)).toBe(1);
+    expect(gh.mutations()).toEqual([]);
+  });
 });

@@ -34,8 +34,12 @@ describe("the stanza teaches the current taxonomy", () => {
     expect(stanza.toLowerCase()).toContain("committed");
   });
 
-  test("points at the vendored doctrine rather than restating it", () => {
-    expect(stanza).toContain("AGENT.md");
+  test("routes to the vendored skills rather than restating them", () => {
+    expect(stanza).toContain(".pm-playbook/skills/prove/SKILL.md");
+  });
+
+  test("says who closes a gate", () => {
+    expect(stanza).toContain("A person closes a gate");
   });
 
   test("routes the agent to the local mirror", () => {

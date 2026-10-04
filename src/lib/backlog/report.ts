@@ -40,6 +40,7 @@ const ascending = (a: number, b: number) => a - b;
 function lineOf(e: BacklogEntity, gates: BacklogEntity[]): ItemLine {
   const views: GateView[] = gates
     .map((g) => ({ n: gateOf(g.labels)!.n, state: g.state }))
+    .filter((g) => g.n > 0) // a retired gate is history, not a stage
     .sort((a, b) => ascending(a.n, b.n));
 
   const item: WorkItemView = {
@@ -47,6 +48,7 @@ function lineOf(e: BacklogEntity, gates: BacklogEntity[]): ItemLine {
     type: workTypeOf(e.labels)!,
     state: e.state,
     milestone: e.milestone,
+    hotfix: e.labels.includes("hotfix"),
     gates: views,
   };
 
@@ -64,7 +66,7 @@ function lineOf(e: BacklogEntity, gates: BacklogEntity[]): ItemLine {
  *
  * Closed work items are absent by construction: the question is what *remains*, and a report that
  * grows monotonically through a cycle is one nobody reads by the end of it. It is also what makes
- * §9.6's open-only summary guarantee exactly sufficient here.
+ * §8's open-only summary guarantee exactly sufficient here.
  *
  * `release-gate` issues are excluded at this layer rather than hidden at the render layer. A release
  * gate is a synchronisation mechanism, not work — it carries no purpose to summarise and no gates to

@@ -48,6 +48,8 @@ export interface FakeData {
   parentage?: Parentage;
   subIssueCounts?: Map<number, number> | null;
   prScope?: realGh.PullRequestScope;
+  /** What `issueDetail` returns, by issue number. */
+  details?: Record<number, { title: string; state: string; labels: string[]; body: string }>;
   /** Number handed back by `createIssue`, incremented per call. */
   nextIssueNumber?: number;
 }
@@ -64,8 +66,8 @@ export interface FakeGh {
   reset(): void;
 }
 
-/** The four that write to GitHub. `migrate`'s label verbs are asserted in its own file. */
-const MUTATING = new Set(["updateIssue", "createIssue", "addComment", "addSubIssue"]);
+/** The five that write to GitHub. `migrate`'s label verbs are asserted in its own file. */
+const MUTATING = new Set(["updateIssue", "createIssue", "addComment", "addSubIssue", "closeIssue"]);
 
 /**
  * Install the fake for the calling test file.
@@ -116,6 +118,12 @@ export function installFakeGh(initial: FakeData = {}): FakeGh {
       listMilestones: recordAsync("listMilestones", () => data.milestones ?? []),
       listLabels: recordAsync("listLabels", () => data.labels ?? []),
       issueBody: recordAsync("issueBody", () => ""),
+      issueDetail: async (...args: unknown[]) => {
+        calls.push({ fn: "issueDetail", args });
+        const d = data.details?.[args[1] as number];
+        if (!d) throw new Error(`issue #${String(args[1])} not configured for this test`);
+        return d;
+      },
       fetchBacklog: recordAsync("fetchBacklog", () => data.backlog ?? []),
       fetchParentage: recordAsync("fetchParentage", () =>
         data.parentage ?? { parentOf: new Map(), all: new Map() }),
@@ -133,6 +141,8 @@ export function installFakeGh(initial: FakeData = {}): FakeGh {
       relabelIssue: recordAsync("relabelIssue", () => undefined),
       renameLabel: recordAsync("renameLabel", () => undefined),
       deleteLabel: recordAsync("deleteLabel", () => undefined),
+      upsertLabel: recordAsync("upsertLabel", () => undefined),
+      closeIssue: recordAsync("closeIssue", () => undefined),
     } satisfies Partial<GhModule> as GhModule));
   });
 

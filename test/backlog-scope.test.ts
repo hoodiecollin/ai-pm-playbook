@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { EVERYTHING, describeScope, expand, isMember, parseScope, type Scope } from "../src/lib/backlog/scope.js";
 import { parseArgs } from "../src/lib/args.js";
 import type { BacklogEntity, EntityKind } from "../src/lib/backlog/model.js";
+import { gateLabel } from "../src/lib/model.js";
 
 let counter = 0;
 function entity(partial: Partial<BacklogEntity> = {}): BacklogEntity {
@@ -117,7 +118,7 @@ describe("an epic target brings its children", () => {
 describe("gates ride with their parent — always", () => {
   const parent = () => entity({ number: 1, labels: ["improvement"], milestone: "v1.0.0" });
   const gate = (n: number, milestone: string | null = "v1.0.0") =>
-    entity({ number: n, parent: 1, kind: "gate", labels: [`improvement:gate-${n - 1}`], milestone });
+    entity({ number: n, parent: 1, kind: "gate", labels: [gateLabel("improvement", n - 1)], milestone });
 
   test("a member's gates are covered", () => {
     expect(sorted(expand([parent(), gate(2), gate(3)], scope(["--milestone", "v1.0.0"])))).toEqual([1, 2, 3]);
@@ -137,7 +138,7 @@ describe("gates ride with their parent — always", () => {
   });
 
   test("a gate is never a member on its own account", () => {
-    const orphanGate = entity({ number: 9, parent: 99, kind: "gate", labels: ["improvement:gate-1"], milestone: "v1.0.0" });
+    const orphanGate = entity({ number: 9, parent: 99, kind: "gate", labels: ["gate:intent"], milestone: "v1.0.0" });
     expect(isMember(orphanGate, scope(["--milestone", "v1.0.0"]))).toBe(false);
     expect(sorted(expand([orphanGate], scope(["--milestone", "v1.0.0"])))).toEqual([]);
   });
@@ -145,7 +146,7 @@ describe("gates ride with their parent — always", () => {
   test("gates of an epic's children ride along too — two levels, one pass", () => {
     const epic = entity({ number: 1, labels: ["epic"], kind: "epic" });
     const child = entity({ number: 2, parent: 1, kind: "subissue" });
-    const childGate = entity({ number: 3, parent: 2, kind: "gate", labels: ["improvement:gate-1"] });
+    const childGate = entity({ number: 3, parent: 2, kind: "gate", labels: ["gate:intent"] });
     expect(sorted(expand([epic, child, childGate], scope(["--epic", "1"])))).toEqual([1, 2, 3]);
   });
 });
@@ -163,7 +164,7 @@ describe("everything", () => {
   test("covers every entity, gates included", () => {
     const all = [
       entity({ number: 1 }),
-      entity({ number: 2, parent: 1, kind: "gate", labels: ["improvement:gate-1"] }),
+      entity({ number: 2, parent: 1, kind: "gate", labels: ["gate:intent"] }),
       entity({ number: 3, labels: ["epic"], kind: "epic" }),
     ];
     expect(sorted(expand(all, EVERYTHING))).toEqual([1, 2, 3]);

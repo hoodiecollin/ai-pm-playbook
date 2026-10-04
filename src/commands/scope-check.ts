@@ -1,5 +1,5 @@
 /**
- * `pm-playbook scope-check <pr>` — the cycle-scope gate (§5.3).
+ * `pm-playbook scope-check <pr>` — the cycle-scope gate (§5).
  *
  * Wire it on pull requests targeting the integration branch:
  *
@@ -7,7 +7,7 @@
  *
  * The gate reads the MILESTONE, not the branch name. The schedule already lives on the issue, so
  * consulting it beats duplicating it into a version-named branch — which is precisely the
- * parallel-decomposition anti-pattern §5.3 exists to prevent.
+ * parallel-decomposition anti-pattern §5 exists to prevent.
  *
  * The cycle in flight is DERIVED (lowest open core milestone on an unreleased line), never
  * configured, so there is no constant to update and nothing that can drift from the actual spine.

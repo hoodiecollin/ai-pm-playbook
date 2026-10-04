@@ -44,7 +44,7 @@ function segment(state: EntityState, number: number): string {
 export function gateDirName(e: BacklogEntity): string {
   const gate = gateOf(e.labels);
   if (!gate) {
-    throw new Error(`#${e.number} is a gate but carries no \`{type}:gate-{n}\` label to name it by.`);
+    throw new Error(`#${e.number} is a gate but carries no \`gate:<verb>\` label to name it by.`);
   }
   return `${GATES_DIR_PREFIX}${gate.n}--${e.number}`;
 }
@@ -59,8 +59,8 @@ export function gateDirName(e: BacklogEntity): string {
  * silently mislocated issue would read as a delete plus a create.
  *
  * **Gates do not move when they close.** Everything else relocates under `_/` because closed work is
- * archive; a closed gate is *reference*. §9's whole premise is that each gate's output is the next
- * one's input, so burying the approved gate 1 exactly when gate 2 is being written against it would
+ * archive; a closed gate is *reference*. §2's whole premise is that each gate's output is the next
+ * one's input, so burying the approved intent exactly when the proof is being written against it would
  * be backwards. State still lives in the frontmatter, which is what any reader should trust anyway.
  */
 export function entityDir(e: BacklogEntity, ancestors: BacklogEntity[] = []): string {

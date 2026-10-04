@@ -22,8 +22,10 @@ import { ladder } from "./commands/ladder.js";
 import { milestone } from "./commands/milestone.js";
 import { context } from "./commands/context.js";
 import { materialize } from "./commands/materialize.js";
+import { prove } from "./commands/prove.js";
 import { releaseCheck } from "./commands/release-check.js";
 import { scopeCheck } from "./commands/scope-check.js";
+import { prCheck } from "./commands/pr-check.js";
 
 const HELP = `pm-playbook — a portable, agent-readable project-management model for GitHub Issues.
 
@@ -47,6 +49,10 @@ COMMANDS
                           your last pull, or has an unpushed local edit. Previews; --yes to post.
   materialize             Create the gate sub-issues for a milestone's work items, as complete
                           sets. Idempotent and resumable. Previews by default; --yes to apply.
+  prove <gate>            Judge a proof gate's claims table. Closes it (with --yes) only when every
+                          claim was run, read or scoped out and no one-way door is declared;
+                          otherwise exit 1 with what is still owed. Every other gate is closed by
+                          a human.
   ladder                  Where every work item sits on the commitment ladder (derived from gate
                           state, so no filter can answer it).
   milestone [vX.Y.Z]      What work is left on a release, grouped by epic and readable on a phone.
@@ -54,8 +60,10 @@ COMMANDS
   context <issue>         Everything an agent needs to work one issue: its complete neighbourhood
                           as a roster, plus each open neighbour's own summary. Reads the mirror.
   release-check <vX.Y.Z>  Can this milestone be tagged? Exit 1 if gated or incomplete.
-  scope-check <pr>        Cycle-scope gate (§5.3): refuse a PR to the integration branch that
+  scope-check <pr>        Cycle-scope gate (§5): refuse a PR to the integration branch that
                           closes work milestoned past the cycle in flight.
+  pr-check <pr>           What every PR must carry: one that closes a bugfix changes a test (PM021).
+                          --test-pattern <regex> overrides what counts as a test file.
   migrate                 Apply GitHub-side label migrations after a MAJOR upgrade.
                           Previews by default; --yes to apply.
   rules                   Print the rule index (id, section, severity).
@@ -169,6 +177,8 @@ async function main(): Promise<number> {
       return comment(args, repoRoot, args._[1]);
     case "materialize":
       return materialize(args, repoRoot);
+    case "prove":
+      return prove(args, repoRoot, args._[1]);
     case "ladder":
       return ladder(args, repoRoot);
     case "milestone":
@@ -179,6 +189,8 @@ async function main(): Promise<number> {
       return releaseCheck(args, repoRoot, args._[1]);
     case "scope-check":
       return scopeCheck(args, repoRoot, args._[1]);
+    case "pr-check":
+      return prCheck(args, repoRoot, args._[1]);
     case "rules":
       for (const r of RULES) {
         console.log(`${r.rule}  ${r.severity.padEnd(5)} ${r.section.padEnd(8)} ${r.summary}`);

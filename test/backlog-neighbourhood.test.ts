@@ -95,7 +95,7 @@ describe("structural relations", () => {
 
   test("a gate is never a neighbour — it is its parent's status", () => {
     const me = entity({ number: 1, milestone: "v1.0.0" });
-    const gate = entity({ number: 2, parent: 1, kind: "gate", labels: ["improvement:gate-1"], milestone: "v1.0.0" });
+    const gate = entity({ number: 2, parent: 1, kind: "gate", labels: ["gate:intent"], milestone: "v1.0.0" });
     expect(relations([me, gate], 1)).toEqual([]);
   });
 });
@@ -120,11 +120,11 @@ describe("ranking", () => {
     // Gate 1 closed, gate 2 ABSENT. §2: the first gate that is not closed decides — absent means
     // `-next`, open means `-pending`. Reusing ladderState is what keeps that distinction correct
     // here without restating it.
-    const g1 = entity({ number: 3, parent: 2, kind: "gate", labels: ["improvement:gate-1"], state: "CLOSED" });
-    expect(neighboursOf([me, other, g1], 1)[0]!.rung).toBe("plan-next");
+    const g1 = entity({ number: 3, parent: 2, kind: "gate", labels: ["gate:intent"], state: "CLOSED" });
+    expect(neighboursOf([me, other, g1], 1)[0]!.rung).toBe("proof-next");
 
-    const g2 = entity({ number: 4, parent: 2, kind: "gate", labels: ["improvement:gate-2"], state: "OPEN" });
-    expect(neighboursOf([me, other, g1, g2], 1)[0]!.rung).toBe("plan-pending");
+    const g2 = entity({ number: 4, parent: 2, kind: "gate", labels: ["gate:proof"], state: "OPEN" });
+    expect(neighboursOf([me, other, g1, g2], 1)[0]!.rung).toBe("proof-pending");
   });
 });
 

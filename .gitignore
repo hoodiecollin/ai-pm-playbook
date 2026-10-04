@@ -10,3 +10,6 @@ assets/
 *.log
 .DS_Store
 GAP-AUDIT.md
+
+# Eval run outputs (model transcripts) — local only.
+evals/prove/.results/

@@ -1,7 +1,7 @@
 /**
  * `pm-playbook release-check <milestone>` — "can we tag?" as a command instead of a memory.
  *
- * PLAYBOOK §5.2: an open `release-gate` on a milestone means that milestone cannot be tagged, even
+ * PLAYBOOK §5: an open `release-gate` on a milestone means that milestone cannot be tagged, even
  * when every feature on it is closed. This is the mechanical check a tag workflow runs.
  *
  * It deliberately reports the *open non-gate* work separately: unfinished features mean the
@@ -65,11 +65,11 @@ export async function releaseCheck(args: Args, repoRoot: string, milestone?: str
   if (releasable) {
     console.log("✓ No open release-gates and no open issues on this milestone.");
     console.log("");
-    console.log("Reminder (§5.2): green in-tree is not proof of releasable. If this product publishes");
+    console.log("Reminder (§5): green in-tree is not proof of releasable. If this product publishes");
     console.log("artifacts its own built output depends on, run the outside-repo reclose — from a clean");
     console.log("directory, with the PUBLISHED tool: install → scaffold → generate → build.");
     console.log("");
-    console.log("Reminder (§5.5): if this ran in its own tag-triggered workflow, it did NOT gate the");
+    console.log("Reminder (§2): if this ran in its own tag-triggered workflow, it did NOT gate the");
     console.log("release — same-event workflows run in parallel. To block, it must be a job the release");
     console.log("jobs `needs:`, a pre-release hook, or a required status check.");
     return 0;

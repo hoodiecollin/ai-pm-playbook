@@ -9,7 +9,7 @@
  * Three laws are fixed rather than configurable:
  *
  *   1. **Gates ride with their parent, always.** Never selected, never filtered out, never counted.
- *      A gate carries `improvement:gate-1` rather than `improvement`, so a naive kind filter drops
+ *      A gate carries `gate:intent` rather than `improvement`, so a naive kind filter drops
  *      precisely the children completeness depends on. Membership is also never derived from a
  *      gate's milestone field — that was wrong for three issues in this repository until PM011
  *      caught it.

@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # `check` validates state that changes with no commit — PM013 flips the moment a milestone
+  # closes — so a push trigger alone would leave the badge green on expired evidence.
+  schedule:
+    - cron: "17 6 * * *"
 
 jobs:
   build:
@@ -40,7 +44,8 @@ jobs:
           git init -q . && npm init -y >/dev/null
           npm i -D /tmp/*.tgz >/dev/null
           npx @hoodiecollin/pm-playbook init
-          test -f .pm-playbook/AGENT.md
+          test -f .pm-playbook/PLAYBOOK.md
+          test -f .pm-playbook/skills/prove/SKILL.md
           test -f .pm-playbook/manifest.json
           test -f .github/ISSUE_TEMPLATE/improvement.md
           grep -q 'pm-playbook:begin' AGENTS.md
@@ -79,6 +84,12 @@ jobs:
       - run: bun run build
       # Dogfood: this repo's own backlog must satisfy the invariants it ships.
       - run: node dist/cli.js check --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+      # PM021: a PR that closes a bugfix must change a test.
+      - if: github.event_name == 'pull_request'
+        run: node dist/cli.js pr-check ${{ github.event.pull_request.number }} --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

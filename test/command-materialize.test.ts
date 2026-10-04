@@ -12,6 +12,7 @@ import { tempRepoRoot } from "./support/repo.js";
 import { parseArgs } from "../src/lib/args.js";
 import { materialize } from "../src/commands/materialize.js";
 import type { Issue } from "../src/lib/gh.js";
+import { RETIRED_GATE } from "../src/lib/model.js";
 import type { Parentage } from "../src/lib/invariants.js";
 
 const gh = installFakeGh();
@@ -41,7 +42,7 @@ async function capture(fn: () => Promise<number>): Promise<{ code: number; out: 
 
 const CYCLE = [{ number: 1, title: "v1.0.0", state: "open" }];
 
-/** One ungated improvement on the cycle in flight — three gates pending. */
+/** One ungated improvement on the cycle in flight — two gates pending. */
 function ungated() {
   return {
     milestones: CYCLE,
@@ -59,8 +60,8 @@ describe("materialize — preview creates nothing", () => {
 
     const { code, out } = await run([]);
     expect(code).toBe(0);
-    expect(out).toContain("improvement:gate-1");
-    expect(out).toContain("3 gate(s) to materialize");
+    expect(out).toContain("gate:intent");
+    expect(out).toContain("2 gate(s) to materialize");
     expect(gh.mutations()).toEqual([]);
   });
 
@@ -70,7 +71,7 @@ describe("materialize — preview creates nothing", () => {
 
     const { code, out } = await run(["--json"]);
     expect(code).toBe(0);
-    expect(JSON.parse(out).create).toHaveLength(3);
+    expect(JSON.parse(out).create).toHaveLength(2);
     expect(gh.mutations()).toEqual([]);
   });
 });
@@ -83,9 +84,9 @@ describe("materialize --yes — creates and links", () => {
     const { code } = await run(["--yes"]);
     expect(code).toBe(0);
 
-    expect(gh.callsTo("createIssue")).toHaveLength(3);
+    expect(gh.callsTo("createIssue")).toHaveLength(2);
     const links = gh.callsTo("addSubIssue");
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(2);
     // Every link names the work item as parent — an unlinked gate is invisible to PM013.
     for (const link of links) expect(link.args[1]).toBe(1);
   });
@@ -106,9 +107,9 @@ describe("materialize — idempotence", () => {
     gh.reset();
     const parent = issue(1, ["improvement"], "v1.0.0");
     const gates = [
-      issue(2, ["improvement:gate-1"], "v1.0.0"),
-      issue(3, ["improvement:gate-2"], "v1.0.0"),
-      issue(4, ["improvement:gate-3"], "v1.0.0"),
+      issue(2, ["gate:intent"], "v1.0.0"),
+      issue(3, ["gate:proof"], "v1.0.0"),
+      issue(4, [RETIRED_GATE], "v1.0.0", "CLOSED"),
     ];
     gh.set({
       milestones: CYCLE,

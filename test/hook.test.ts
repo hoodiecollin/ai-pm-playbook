@@ -9,8 +9,16 @@ import { join } from "node:path";
 
 const HOOK = join(import.meta.dir, "..", "plugins", "pm-playbook", "hooks", "guard-issue-mutation.mjs");
 
-async function runHook(payload: unknown): Promise<{ code: number; decision: string | null; reason: string }> {
-  const proc = Bun.spawn(["node", HOOK], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+async function runHook(
+  payload: unknown,
+  env: Record<string, string> = {},
+): Promise<{ code: number; decision: string | null; reason: string }> {
+  // Unless a test supplies its own, point the gate lookup at a binary that always fails, so no test
+  // ever reaches the real GitHub — and so the fail-open path is what the ordinary tests exercise.
+  const proc = Bun.spawn(["node", HOOK], {
+    stdin: "pipe", stdout: "pipe", stderr: "pipe",
+    env: { ...process.env, PM_PLAYBOOK_GH: "false", ...env },
+  });
   proc.stdin.write(typeof payload === "string" ? payload : JSON.stringify(payload));
   await proc.stdin.end();
   const stdout = await new Response(proc.stdout).text();
@@ -146,4 +154,68 @@ describe("guard — fails open, never breaks the session", () => {
       expect(r.decision).toBeNull();
     });
   }
+});
+
+describe("guard — a gate is closed by a human", () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, chmodSync } = require("node:fs") as typeof import("node:fs");
+  const { tmpdir } = require("node:os") as typeof import("node:os");
+
+  /** A fake `gh` that answers `issue view --json labels` with the given label list. */
+  function fakeGh(labels: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "pm-gh-"));
+    const bin = join(dir, "gh");
+    writeFileSync(bin, `#!/bin/sh\necho "${labels}"\n`);
+    chmodSync(bin, 0o755);
+    return bin;
+  }
+
+  /** A repo whose mirror holds gate #42 under work item #7. */
+  function repoWithMirror(): string {
+    const root = mkdtempSync(join(tmpdir(), "pm-repo-"));
+    mkdirSync(join(root, ".pm-playbook", "backlog", "standalone", "7", "gates", "gate-2--42"), { recursive: true });
+    return root;
+  }
+
+  const at = (command: string, cwd: string) => ({ ...bash(command), cwd });
+  /** A directory with no mirror, so the lookup has to go to (fake) GitHub. */
+  const empty = () => mkdtempSync(join(tmpdir(), "pm-empty-"));
+
+  test("a hand-made 4.x gate label is refused like a legacy one", async () => {
+    const r = await runHook(bash("gh issue create --label gate:intent --title x"));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("materialize");
+  });
+
+  test("the mirror answers offline: closing gate #42 is refused with no network call", async () => {
+    const r = await runHook(at("gh issue close 42", repoWithMirror()));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("closed by a human");
+  });
+
+  test("on a mirror miss, GitHub answers — a gate label means refused", async () => {
+    const r = await runHook(at("gh issue close 42 --comment done", empty()), { PM_PLAYBOOK_GH: fakeGh("gate:proof,improvement") });
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("prove 42");
+  });
+
+  test("closing an ordinary issue is allowed", async () => {
+    const r = await runHook(at("gh issue close 42", empty()), { PM_PLAYBOOK_GH: fakeGh("improvement") });
+    expect(r.decision).toBeNull();
+  });
+
+  test("the REST form is caught too", async () => {
+    const r = await runHook(at("gh api -X PATCH repos/o/r/issues/42 -f state=closed", repoWithMirror()));
+    expect(r.decision).toBe("deny");
+  });
+
+  test("a lookup that fails is allowed — the guard fails open", async () => {
+    const r = await runHook(at("gh issue close 42", empty()));
+    expect(r.decision).toBeNull();
+    expect(r.code).toBe(0);
+  });
+
+  test("reopening a gate is never blocked — it is the way back", async () => {
+    const r = await runHook(at("gh issue reopen 42", repoWithMirror()));
+    expect(r.decision).toBeNull();
+  });
 });

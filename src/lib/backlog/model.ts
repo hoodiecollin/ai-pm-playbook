@@ -11,7 +11,7 @@
  *
  * This is derived from GitHub state rather than declared: a `{type}:gate-{n}` label makes it a gate,
  * otherwise a parent makes it a sub-issue, the `epic` label makes it an epic, and everything else is
- * standalone. A standalone issue therefore cannot have sub-issues by construction (PLAYBOOK §7.1).
+ * standalone. A standalone issue therefore cannot have sub-issues by construction (PLAYBOOK §7).
  *
  * The gate check comes first because a gate always has a parent and would otherwise read as an
  * ordinary sub-issue — which would put it under `subissues/` and lose the level entirely.

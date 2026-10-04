@@ -1,22 +1,20 @@
 # @hoodiecollin/pm-playbook
 
-A portable project-management model for GitHub Issues — packaged so **your agents read it and a
-linter enforces it**.
+A project-management model for GitHub Issues, packaged as **skills your agents load, a linter and
+CLI that enforce it, and a hook that stops an agent closing the gates a person is meant to close**.
 
 ```bash
-npx @hoodiecollin/pm-playbook init                        # vendor the doctrine + wire your agent instruction files
-npx @hoodiecollin/pm-playbook bootstrap --repo owner/name # create the 13 labels on GitHub
+npx @hoodiecollin/pm-playbook init                        # vendor the skills + wire your agent instruction files
+npx @hoodiecollin/pm-playbook bootstrap --repo owner/name # create the labels on GitHub
 npx @hoodiecollin/pm-playbook check                       # exit 1 if the backlog violates an invariant
 ```
 
 `init` writes files; `bootstrap` is the only step that touches GitHub, and it is idempotent.
-**Already on 1.x? See [upgrading](#upgrading-from-1x) — 2.0 renames and retires labels.**
+**On 3.x? See [upgrading](#upgrading-from-3x) — 4.0 replaces the gates.**
 
 Works with any agent harness that reads repo files — Claude Code, Cursor, Codex, Copilot, Gemini,
-Windsurf, or your own. No MCP server to run.
-
-Claude Code users can additionally install the plugin, which adds slash commands and a hook that
-blocks invariant-violating `gh issue` calls *before they run*:
+Windsurf, or your own. Claude Code users can also install the plugin, which delivers the same skills
+natively and adds the hook:
 
 ```
 /plugin marketplace add hoodiecollin/ai-pm-playbook
@@ -25,155 +23,139 @@ blocks invariant-violating `gh issue` calls *before they run*:
 
 ---
 
-## Why this isn't a normal dependency
+## The model
 
-Two payloads, two delivery mechanics:
+Issues are the backlog. **Milestone = when** (a version; assigning one means committed). **Label =
+what kind**: every work item is exactly one of `improvement`, `bugfix`, `experiment`. Epics group
+work items as native sub-issues. No priority or size fields.
 
-| Payload | Consumer | How it ships |
+A **gate** is a sub-issue recording a decision a person has to make before work continues:
+
+| Type | Gates | Then |
 |---|---|---|
-| The doctrine (`PLAYBOOK.md`) | your **agent's context window** | vendored into `.pm-playbook/`, committed, version-stamped |
-| The provisioner + linter | your **GitHub and your CI** | ordinary `npx` bin |
+| `improvement` | **intent** (what and why — approved by reading) → **proof** (how — closes on evidence) | build: the PR |
+| `bugfix` | none; a `hotfix` takes a **warrant** | fix: the PR, with a regression test |
+| `experiment` | **charter** → **verdict** | the verdict is the deliverable |
 
-The doctrine is **copied into your repo rather than referenced from `node_modules/`**, on purpose:
-cloud agents, CI containers and review sandboxes routinely have no `node_modules`; a committed file
-is diffable, so a doctrine change shows up in PR review; and every harness can read repo files while
-none reliably resolve a package path out of prose.
+The proof gate is the centre of 4.0. It holds a claims table — every claim the approach rests on,
+each marked `ran`, `read`, `out-of-scope` or `assumed` — and cannot close while anything is merely
+assumed. That rule comes from a review of the main project using 3.x: most accepted designs that
+later failed rested on a claim about a library or runtime that nobody had run.
 
-The cost of copying is drift, so it's paid for with a manifest — package version plus a SHA-256 per
-file. `check` compares them and tells you to re-run `init`. That's the lockfile pattern applied to
-prose.
+Full reasoning: **[PLAYBOOK.md](./PLAYBOOK.md)**.
 
 ## What `init` does
 
 ```
 .pm-playbook/
-  AGENT.md              ← the router your agents read first (short, always loadable)
-  PLAYBOOK.md           ← the full doctrine
-  reference/            ← 13 sections, loaded on demand
+  PLAYBOOK.md           ← the model and its reasons, for people
+  skills/<name>/SKILL.md← the map (pm-playbook) plus nine workflow skills: file, intent, prove, build,
+                          fix, experiment, next, release, check
   manifest.json         ← version + per-file hashes (drift detection)
 .github/ISSUE_TEMPLATE/ ← improvement · bugfix · experiment · epic · release-gate
-AGENTS.md               ← a ~20-line pointer stanza between markers
-.gitignore              ← one line: .pm-playbook/backlog/ (see below)
+AGENTS.md               ← a ~35-line stanza between markers: the axes, the gates, and a table of skills
+.gitignore              ← one line: .pm-playbook/backlog/
 ```
 
-The stanza is a **pointer plus the invariants**, never the doctrine itself. Always-loaded context is
-the scarcest resource in a repo — spending 500 lines of it on project management would degrade every
-unrelated task. The pointer costs ~20 lines and buys progressive disclosure.
+The stanza is the only always-loaded part. Everything else is a skill loaded when the task needs
+it, because a long always-loaded doctrine degrades every unrelated task and is followed less
+reliably the longer it gets. `--detect` also writes the stanza into agent files your team already
+keeps (`CLAUDE.md`, `.cursorrules`, …); re-running replaces it in place between
+`<!-- pm-playbook:begin -->` markers.
 
-`--detect` also writes any agent file your team already keeps (`CLAUDE.md`,
-`.github/copilot-instructions.md`, `.cursorrules`, `GEMINI.md`, …). Re-running is idempotent:
-the stanza sits between `<!-- pm-playbook:begin -->` markers, so your own content is never touched.
+The skills are **copied into your repo** rather than referenced from `node_modules/`: cloud agents
+and CI sandboxes often have no `node_modules`, and a committed file shows up in PR review. A manifest
+of per-file hashes lets `check` tell you when the copy is stale.
 
-## Why the linter is the load-bearing piece
+## Enforcement
 
-Prose in a context window is a suggestion. A command that exits non-zero is a constraint.
+Prose is a suggestion; a command that exits non-zero is a constraint. Each rule has a place where it
+fails:
 
-The playbook's invariants are already boolean expressions over labels and milestones, so they're
-executable — and agents self-correct against a failing check far more reliably than against a
-paragraph they half-loaded.
-
-| Rule | Invariant | §
+| Rule | Invariant | Fails in |
 |---|---|---|
-| `PM003` | `experiment` ⊕ milestone | 4 |
-| `PM004` | `release-gate` ⇒ milestone | 3.2 |
-| `PM005` | `release-gate` ⊕ `experiment` | 3.2 |
-| `PM006` | non-core `surface:*` ⊕ core `v*` milestone | 6.1 |
-| `PM007` | an `epic` decomposes via native sub-issues *(warn)* | 7.1 |
-| `PM008` | a PR to the integration branch never closes work milestoned past the cycle in flight | 5.3 |
-| `PM009` | a PR references next-cycle work it doesn't close *(warn)* | 5.3 |
-| `PM010` | exactly one type label per work item | 3.1 |
-| `PM011` | a gate's milestone equals its parent's | 9 |
-| `PM012` | an `epic` never carries gates | 7.1 |
-| `PM013` | a work item on the focused milestone carries its complete gate set | 9 |
-| `PM014` | `hotfix` ⇒ `bugfix` + milestone, and ⊕ {`experiment`, `epic`} | 5.6 |
-| `PM015` | a patch milestone holds exactly one work item and its gates, nothing else | 5.6 |
-| `PM016` | every gate closed but the work item still open *(warn)* | 9 |
-| `PM100` | vendored doctrine matches the installed package *(warn)* | — |
-| `PM101` | agent instruction files carry the stanza *(warn)* | — |
-| `PM102` | no markdown shadow backlog *(warn)* | 11 |
-| `PM103` | label migrations from a newer version have been applied *(warn)* | — |
-| `PM104` | no unresolved backlog conflict drafts *(warn)* | 11 |
-| `PM105` | only an `epic` has non-gate sub-issues; only a work item has gates | 7.1 |
+| `PM003` | `experiment` never carries a milestone | `check` |
+| `PM004` / `PM005` | `release-gate` has a milestone and never carries `experiment` | `check` |
+| `PM006` | a non-core `surface:*` never rides a core `v*` milestone | `check` |
+| `PM007` | an `epic` decomposes via native sub-issues *(warn)* | `check` |
+| `PM008` / `PM009` | a PR to the integration branch never closes work past the cycle in flight | `scope-check` |
+| `PM010` | exactly one type label per work item | `check`, hook |
+| `PM011` | a gate's milestone equals its parent's | `check` |
+| `PM012` | an `epic` never carries gates | `check` |
+| `PM013` | a work item on the cycle in flight carries every gate it owes | `check` |
+| `PM014` | `hotfix` ⇒ `bugfix` + milestone, and never `experiment` or `epic` | `check`, hook |
+| `PM015` | a patch milestone holds exactly one work item | `check` |
+| `PM016` | an experiment whose verdict is closed is closed *(warn)* | `check` |
+| `PM017` | a work item opens with `### In plain English` *(warn)* | `check --no-remote` |
+| `PM018` | a closed proof gate has no `assumed` claim and evidence on every other | `check --no-remote`, `prove` |
+| `PM019` | a closed gate is not still its empty seed | `check --no-remote` |
+| `PM020` | no open pre-4.0 gate, no legacy gate label | `check` |
+| `PM021` | a PR that closes a `bugfix` changes a test | `pr-check` |
+| `PM100`–`PM106` | vendoring, stanza, shadow backlog, pending migrations, mirror state *(warn)* | `check` |
 
-`PM001` and `PM002` were retired in 2.0 along with the `plan-next` and `idea` labels. **Their
-numbers are burned, never reused** — a CI config or agent prompt that still names `PM001` should
-stop matching rather than silently match a different rule.
+And two that are about *who*, not *what*:
 
-Every violation carries an **executable fix**, and `--json` emits the whole report — that's the
-agent-facing interface. A harness can feed violations straight back to a model:
+- **The hook refuses an agent's `gh issue close` on a gate** (and the REST equivalent). A closed gate
+  means a person approved it, and the agent works on that person's token, so this is the only place
+  the difference can be enforced. It checks the local mirror first and asks GitHub only on a miss;
+  it fails open on any error. The maintainer closes gates in the UI or with a `!` command.
+- **`push` refuses to close a gate** through the mirror, for the same reason.
 
-```jsonc
-{
-  "rule": "PM013",
-  "severity": "error",
-  "message": "#42 is on the cycle in flight (`v2.1.0`) but is missing gate(s) 2, 3 of 3. …",
-  "fix": "npx @hoodiecollin/pm-playbook materialize --milestone v2.1.0"
-}
-```
+`pm-playbook prove <n> --yes` is the one way a gate closes without a person: a proof gate whose
+claims are all proven and which declares no one-way doors.
+
+Every violation carries an executable `fix`, and `--json` emits the whole report for an agent to act
+on. `PM001` and `PM002` were retired in 2.0; their numbers are never reused.
 
 ## Commands
 
 | Command | Does |
 |---|---|
-| `init` | Vendor the doctrine, copy issue templates, wire agent files. **Local and offline** unless `--repo` is passed. |
-| `bootstrap --repo o/n --project N` | Provision labels, a starter milestone, and the filtered Project views. Idempotent. |
-| `check` | Lint the backlog. `--no-remote` for local-only, `--json` for agents, `--strict` to fail on warnings. |
-| `materialize` | Create a milestone's gate sub-issues, as complete sets. Idempotent and resumable. Previews; `--yes` applies. |
-| `ladder` | Where every work item sits on the commitment ladder — derived from gate state, so no filter can answer it. |
+| `init` | Vendor the skills and PLAYBOOK, copy issue templates, wire agent files. Offline unless `--repo` is passed. |
+| `bootstrap --repo o/n --project N` | Labels, a starter milestone, and the filtered Project views. Idempotent. |
+| `check` | Lint the backlog. `--no-remote` lints the mirror (the only tier that reads bodies), `--json` for agents. |
+| `materialize` | Create the gates owed on a milestone, as complete sets; `--issue <n>` for an experiment. Previews; `--yes` applies. |
+| `prove <gate>` | Judge a proof gate's claims table; with `--yes`, close it if nothing is left for a person. |
+| `ladder` | The stage of every work item, derived from its gates. |
+| `milestone [vX.Y.Z]` | What is left on a release, grouped by epic, readable on a phone. |
+| `context <issue>` | An issue's whole neighbourhood, for briefing an agent before it works the issue. |
 | `release-check vX.Y.Z` | "Can we tag?" Exit 1 if the milestone is gated or incomplete. |
-| `scope-check <pr>` | Cycle-scope gate: refuse a PR that lands next-cycle work on the integration branch. |
-| `migrate` | Apply label renames/removals after a MAJOR upgrade. Previews by default; `--yes` applies. |
-| `pull` | Materialize the backlog to `.pm-playbook/backlog/` and record the base snapshot. |
-| `push` | Send local edits back. Refuses any issue whose remote also moved. Previews; `--yes` applies. |
-| `comment <issue> --body-file f` | Post a new comment and re-materialize. Refuses a stale read or an unpushed local edit. Previews; `--yes` posts. |
-| `create` | Publish drafts under `backlog/new/`. Validates offline first. Previews; `--yes` applies. |
+| `pr-check <pr>` | PM021: a PR that closes a bugfix changes a test. |
+| `scope-check <pr>` | PM008: no next-cycle work merged onto the integration branch. |
+| `migrate` | Apply label migrations after a MAJOR upgrade. Previews; `--yes` applies. |
+| `pull` / `push` | Materialize the backlog to `.pm-playbook/backlog/`; send local edits back, refusing anything that moved remotely. |
+| `create` / `comment` | Publish drafts from `backlog/new/`; post a comment and re-materialize. |
 | `rules` | Print the rule index. |
-
-`init` deliberately does **not** touch GitHub unless you pass `--repo`: provisioning labels mutates
-shared team state and should be a decision, not a side effect of installing a dependency.
 
 ## CI
 
-Every command reads issues and milestones through the `GITHUB_TOKEN`, so the workflow has to say
-so. A repo whose default workflow permissions are contents-only fails with `Resource not
-accessible by integration (repository.issues)` — grant the read scopes at the top of the file:
+Every command reads issues through `GITHUB_TOKEN`, so grant the read scopes:
 
 ```yaml
 permissions:
   contents: read
   issues: read
+  pull-requests: read   # pr-check and scope-check read the PR
 ```
 
 ```yaml
+# on pull_request, and on a schedule — PM013 changes when a milestone closes, with no commit
 - run: npx @hoodiecollin/pm-playbook check --repo ${{ github.repository }}
   env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
-```
 
-And as a tag gate (§5.2):
+# on pull_request
+- run: npx @hoodiecollin/pm-playbook pr-check ${{ github.event.pull_request.number }}
+  env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
 
-```yaml
+# on pull_request into the integration branch, if you keep one
+- run: npx @hoodiecollin/pm-playbook scope-check ${{ github.event.pull_request.number }}
+  env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+
+# in a job your release jobs `needs:` — not a separate tag-triggered workflow, which would run
+# beside the release and block nothing
 - run: npx @hoodiecollin/pm-playbook release-check ${{ github.ref_name }}
   env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
 ```
-
-**Mind where that step goes (§5.5).** Two workflows triggered by the same tag push are
-independent, so putting this in its own tag-triggered workflow means it runs *beside* your release
-workflow while artifacts build and publish — it fails loudly and blocks nothing. To make it an
-actual gate, put it in a job your release jobs `needs:`, in your release tool's pre-release hook,
-or behind a required status check. Running it parallel-and-loud is a legitimate choice; running it
-that way *by accident* is the one to avoid.
-
-And on pull requests targeting the integration branch (§5.3) — this refuses to land next-cycle work
-on `develop`. The cycle in flight is derived from the lowest open core milestone on an unreleased
-line, so there is no constant to keep updated and a patch milestone does not hijack it:
-
-```yaml
-- run: npx @hoodiecollin/pm-playbook scope-check ${{ github.event.pull_request.number }}
-  env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
-```
-
-`scope-check` reads the pull request as well, so that job additionally needs
-`pull-requests: read`.
 
 ## The local backlog mirror
 
@@ -192,7 +174,7 @@ line, so there is no constant to keep updated and a patch milestone does not hij
 when it can disagree with Issues *indefinitely*.** This one can't. It's gitignored rather than
 committed, `pull` overwrites it from GitHub, and `push` refuses outright the moment both sides have
 moved. A `TASKS.md` has none of those properties — nothing overwrites it and nothing refuses on its
-behalf. §11 says so explicitly, and `PM102` still fires on the real thing.
+behalf. PLAYBOOK §8 says so explicitly, and `PM102` still fires on the real thing.
 
 **Conflicts are refused, never merged.** There is no field-level reconciliation and no local-wins
 flag. A refused edit isn't lost — the next `pull` sets it aside under `conflicts/`, restores remote
@@ -215,118 +197,53 @@ Both tiers lint the same scope — open issues, or everything under `--all-state
 answer and the CI answer agree. `PM105` is the deliberate exception: parentage is structural, so a
 closed epic is still resolved as a parent even when it is outside the linted scope.
 
-## The Claude Code plugin (optional)
-
-The vendored-doctrine path above already works in Claude Code — this adds enforcement *earlier* in
-the loop.
-
-```
-/plugin marketplace add hoodiecollin/ai-pm-playbook
-/plugin install pm-playbook@pm-playbook
-```
-
-| Component | What it does |
-|---|---|
-| **Skill** `pm-playbook` | The always-true core, loaded on demand. Defers to `.pm-playbook/` when the repo has it, since that copy is version-pinned to what the project actually adopted. |
-| `/pm-playbook:check` | Runs the linter and *fixes* what it finds, rather than reporting it back. |
-| `/pm-playbook:promote` | Moves an issue up the ladder as one atomic edit, so a promotion can't half-apply. |
-| `/pm-playbook:gate` | Writes the next open gate's artifact, grounded in the code, after a dedup check. |
-| `/pm-playbook:release` | "Can we tag?", separating *gated* from *incomplete*. |
-| **Hook** (`PreToolUse`) | Blocks `gh issue create/edit` that would violate a label invariant — before the issue exists. |
-
-The hook sees only the command text, never the repo. That is deliberate: it catches what is
-self-evident in the command (`--label improvement --label bugfix`) instantly and offline, and
-leaves state-dependent violations to `check`. A fast partial gate beats a complete one that makes
-every Bash call wait on the network. It fails open on anything it cannot parse — a hook that breaks
-your session is worse than no hook.
-
-It also never blocks the *fix*: `--remove-label bugfix` passes, because the
-guard reads only additive flags. There's a regression test pinning exactly that.
-
-## The model, in one paragraph
-
-All work is **GitHub Issues**, organized by **exactly two orthogonal axes — Milestone (*when*, the
-release spine) and Labels (*what kind / maturity*) — and nothing else decomposes work.** Epics
-decompose via GitHub **native sub-issues** (not checkboxes, not a field); the **Project board is a
-view**, never a second source of truth. There are **no Priority/Size/Workstream fields** — they're
-a parallel source of truth that drifts. Labels carry hard **invariants** and **`experiment` never
-rides the spine** — a spike's deliverable is a decision, not an artifact; its conclusion feeds the
-spine. **Milestones = versions** ("scheduled"; closed ≠ shipped until the Release is tagged).
-Distinct shippable faces are **`surface:*`** labels, each on its own release line and **excluded
-from the core milestone + changelog**. Nothing gets coded until a **design-doc** (what/why) then an
-**implementation-plan** (how) exist as issues, then **BDD spec-first RED→GREEN**. Prioritize on
-**engineering merit, never demand**. If the product **publishes artifacts its own built output
-depends on**, the default branch must stay *releasable* — publish eagerly or hold the **publish
-gap** off trunk, prove it with an **outside-repo reclose**, and label anything that blocks a tag
-**`release-gate`**.
-
-Full text: **[PLAYBOOK.md](./PLAYBOOK.md)**.
 
 ## Versioning
 
-The doctrine is versioned like code, because consumers' existing issues can become violations:
+The model is versioned like code, because a consumer's existing issues can become violations:
 
 | Bump | Means |
 |---|---|
-| **MAJOR** | An invariant changed, or a label was renamed/removed. Your backlog may now fail `check`; a migration note ships with the release. |
-| **MINOR** | A new label, rule, or section. |
+| **MAJOR** | An invariant or gate set changed, or a label was renamed or removed. A migration ships with it. |
+| **MINOR** | A new label, rule, command or skill. |
 | **PATCH** | Wording. |
 
-Because labels live in **your** GitHub rather than in this package, a MAJOR release that renames or
-retires one cannot fix itself — `bootstrap` writes labels by name and would just add the new one
-alongside the old, leaving every existing issue on the stale taxonomy. `migrate` closes that:
-
-```bash
-npx @hoodiecollin/pm-playbook migrate          # preview: shows every action and its blast radius
-npx @hoodiecollin/pm-playbook migrate --yes    # apply
-```
-
-It is preview-first because the three rename cases are not equally reversible:
+Labels live in **your** GitHub, so a MAJOR release cannot fix them itself. `migrate` does, preview
+first:
 
 | Repo state | Action |
 |---|---|
 | only the old label exists | **rename** in place — GitHub preserves every assignment |
 | **both** labels exist | **merge** — relabel each carrier, then delete the old label |
-| only the new label exists | **skip** — already migrated, so re-running is safe |
+| only the new label exists | **skip** — already migrated |
 
-Progress is recorded as `migratedThrough` in `.pm-playbook/manifest.json`, tracked separately from
-`version` so that `init` (which rewrites the doctrine) and `migrate` (which rewrites GitHub) can
-run in either order without one erasing the other's evidence of pending work. `check` reports
-anything outstanding as `PM103`.
+It also rewrites every label description the release defines, since a renamed label keeps its old
+description and the description is the process. Progress is recorded as `migratedThrough` in
+`.pm-playbook/manifest.json`; `check` reports anything outstanding as `PM103`.
 
-### Upgrading from 1.x
-
-2.0 replaces the maturity taxonomy with work types and gates. **Labels go 19 → 13**: `tech-debt`,
-`perf`, `config`, `legacy-audit`, `enhancement` and `documentation` fan in onto `improvement`, `bug`
-becomes `bugfix`, and `rfc`, `idea` and `plan-next` are retired along with GitHub's six stock
-labels. The renames preserve every issue assignment.
+### Upgrading from 3.x
 
 ```bash
-npm i -D @hoodiecollin/pm-playbook@2
-npx @hoodiecollin/pm-playbook init                          # re-vendor the doctrine
-npx @hoodiecollin/pm-playbook migrate                       # preview the label changes
-npx @hoodiecollin/pm-playbook migrate --yes                 # apply them
-npx @hoodiecollin/pm-playbook bootstrap --repo owner/name   # create the new gate labels
-npx @hoodiecollin/pm-playbook check --repo owner/name       # names everything still owed
+npx @hoodiecollin/pm-playbook@4 init        # re-vendor: PLAYBOOK + skills replace AGENT.md + reference/
+npx @hoodiecollin/pm-playbook@4 migrate     # preview
+npx @hoodiecollin/pm-playbook@4 migrate --yes
+npx @hoodiecollin/pm-playbook@4 check       # PM020 lists open retired gates, PM013 the gates now owed
 ```
 
-**`migrate` handles the label half only, and says so when it finishes.** The structural half cannot
-be automated and `check` enumerates it for you:
+What `migrate` does to gates:
 
-| Owed | Why no tool can do it | Reported as |
+| 3.x label | 4.0 label | Why |
 |---|---|---|
-| Give every work item one type label | The merges type most of them; the rest need intent read | `PM010` |
-| Make each former `rfc` issue the gate-1 sub-issue of the item it designs | Nothing records that pairing | — |
-| Materialize gate sets for work in flight | Safe to automate, but only after the two above | `PM013` |
+| `improvement:gate-1` (design) | `gate:intent` | Both are "what and why", decided by a person. |
+| `experiment:gate-1` / `-2` | `gate:charter` / `gate:verdict` | Unchanged in substance. |
+| `improvement:gate-2` (plan), `improvement:gate-3` (impl), `bugfix:gate-1` (diagnose), `bugfix:gate-2` (fix) | `gate:retired` | No 4.0 equivalent. Kept as a label so history keeps its shape, and so an old plan gate can never be read as a proof gate. |
 
-The last step is one command once the types are assigned:
+Then close each **open** `gate:retired` as not planned, and run `materialize --yes`: an improvement
+past design now owes a proof gate, and a hotfix a warrant. A plain bugfix owes nothing — add
+`pr-check` to CI instead. Remove `AGENT.md` and `reference/` from `.pm-playbook/` if `init` reports
+them as orphaned.
 
-```bash
-npx @hoodiecollin/pm-playbook materialize --yes
-```
-
-A migration that half-applies while reporting success is worse than one that states its scope, so
-`migrate` prints the outstanding structural work rather than exiting quietly.
+From 1.x or 2.x, the same commands work: `migrate` replays every pending migration in order.
 
 ## Programmatic use
 
@@ -351,18 +268,20 @@ issue's parent, so without it every gate and hierarchy rule is inert.
 
 ## Developing
 
-`PLAYBOOK.md` is the **one** hand-edited copy of the doctrine. `assets/` is generated from it —
-`bun run build` splits it into `reference/` and verifies that every section is routed from
-`agent/AGENT.template.md` and that every router pointer resolves. A mismatch fails the build.
+Canonical sources: `PLAYBOOK.md` (the explainer), `plugins/pm-playbook/skills/` (the skills —
+canonical there because Claude Code installs plugins from git), `src/lib/model.ts` (the gate sets
+and labels), `src/lib/invariants.ts` (the rules). `assets/` is assembled from them by
+`bun run build`, which fails if the `AGENTS.md` stanza and the skills directory disagree.
 
 ```bash
 bun install
-bun test          # the invariant rules
-bun run build     # generate assets/ + bundle dist/ (Node-compatible ESM)
+bun test          # the invariant rules, the ladder, the hook, every command
+bun run build     # assemble assets/ + bundle dist/ (Node-compatible ESM)
 bun run typecheck
+bun run eval:prove  # replay known false premises against the prove skill (see evals/)
 ```
 
-This repo publishes the doctrine, so it does not vendor a second copy of it — see `AGENTS.md`.
+This repo publishes the model, so it does not vendor a second copy of it — see `AGENTS.md`.
 
 ### Releasing
 
