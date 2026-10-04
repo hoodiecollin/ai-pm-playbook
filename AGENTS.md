@@ -15,7 +15,7 @@
 > consumer actually gets.
 
 <!-- pm-playbook:begin -->
-## Project management — pm-playbook v3.0.0
+## Project management — pm-playbook v4.0.0
 
 Work is tracked in GitHub Issues. **Milestone = when**: assigning one means committed, and the
 lowest open one is the cycle in flight. **Label = what kind**: every work item carries exactly one
