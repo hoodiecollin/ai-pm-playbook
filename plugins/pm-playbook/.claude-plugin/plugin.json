@@ -3,7 +3,7 @@
   "name": "pm-playbook",
   "displayName": "PM Playbook",
   "version": "3.0.0",
-  "description": "Two-axis issue tracking with enforced invariants: a doctrine skill, ladder-aware commands, and a PreToolUse hook that blocks invariant-violating `gh issue` calls before they run.",
+  "description": "Two-axis issue tracking as workflow skills — intent, proof, build, fix, experiment, release — plus a PreToolUse hook that stops an agent closing a gate or setting contradictory labels.",
   "author": {
     "name": "Collin Kokotas",
     "url": "https://github.com/hoodiecollin"

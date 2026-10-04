@@ -7,9 +7,9 @@
  * stanza inside whichever ones the repo uses, so the file stays the user's and we only own our
  * block.
  *
- * The stanza is deliberately a POINTER plus the invariants, not the doctrine itself. Always-loaded
- * context is the scarcest resource in the repo — spending 500 lines of it on project management
- * would degrade every unrelated task. The pointer costs ~20 lines and buys progressive disclosure.
+ * The stanza is deliberately a POINTER to the skills, not the doctrine itself. Always-loaded
+ * context is the scarcest resource in the repo — spending hundreds of lines of it on project management
+ * would degrade every unrelated task. The pointer costs ~35 lines and buys progressive disclosure.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -42,68 +42,64 @@ export function detectAgentFiles(repoRoot: string): string[] {
 }
 
 /**
+ * The skills the stanza routes to, in the order an agent meets them. `split-assets` fails the build
+ * if this list and `plugins/pm-playbook/skills/` disagree.
+ */
+const SKILL_ROUTES: [skill: string, when: string][] = [
+  ["pm-playbook", "the model, and which skill to load"],
+  ["file", "filing a new issue"],
+  ["intent", "writing an improvement's intent gate"],
+  ["prove", "writing or closing a proof gate"],
+  ["build", "implementing an improvement whose gates are closed"],
+  ["fix", "fixing a bug, or a hotfix"],
+  ["experiment", "a spike, benchmark or evaluation"],
+  ["next", "what is left, what to do next, briefing parallel agents"],
+  ["release", "tagging, the release-gate ledger, which branch to target"],
+  ["check", "linting the backlog and fixing what it finds"],
+];
+
+/**
  * The stanza body.
  *
- * Every line here has to earn its place in a permanently-loaded context window. What is included:
- * where the full doctrine lives, when to read it, the invariants an agent would otherwise violate
- * silently, and the command that proves compliance. Nothing else.
+ * Every line here has to earn its place in a permanently-loaded context window, so it holds only
+ * what an agent would otherwise get wrong before it thinks to load a skill: the two axes, the gate
+ * table, who closes a gate, and where each workflow lives. The workflows themselves are skills,
+ * loaded on demand.
  */
 export function renderStanza(version: string): string {
+  const routes = SKILL_ROUTES.map(([s, when]) => `| ${when} | \`${VENDOR_DIR}/skills/${s}/SKILL.md\` |`).join("\n");
   return `${BEGIN}
 ## Project management — pm-playbook v${version}
 
-Issue tracking in this repo follows the **pm-playbook** two-axis model. The full doctrine is
-vendored at \`${VENDOR_DIR}/\` and is authoritative; this block is only a summary.
+Work is tracked in GitHub Issues. **Milestone = when**: assigning one means committed, and the
+lowest open one is the cycle in flight. **Label = what kind**: every work item carries exactly one
+of \`improvement\`, \`bugfix\`, \`experiment\`. Epics group work items as native sub-issues. There are
+no priority or size fields.
 
-**Before you create, label, milestone, or close an issue — read \`${VENDOR_DIR}/AGENT.md\`.**
-It is a short router: load only the reference section relevant to what you are doing.
+| Type | Gates (sub-issues, \`gate:<verb>\`) | Then |
+|---|---|---|
+| \`improvement\` | intent → proof | build |
+| \`bugfix\` | none — a \`hotfix\` takes a warrant | fix, with a regression test |
+| \`experiment\` | charter → verdict (never milestoned) | — |
 
-**The two axes, and nothing else, organize work:**
-- **Milestone** = *when*. Assigning one means **committed**. *Focus* — the milestone being the
-  cycle in flight — is what means scheduled. There is no label for "committed but unscheduled."
-- **Labels** = *what kind*. Epics decompose via **native sub-issues**, never checkboxes and never
-  a Project field.
-- There are **no Priority / Size / Workstream fields**. Do not propose adding any.
+**A person closes a gate, not an agent.** Gates are created only by \`pm-playbook materialize\`. A
+proof gate closes on evidence through \`pm-playbook prove <n> --yes\`; for any other gate that is
+ready, say so and stop. If later work shows an accepted gate was wrong, say so and ask for it to be
+reopened.
 
-**Every work item carries exactly one type, and the type decides its gates:**
+Load the skill for what you are doing (Claude Code: the \`pm-playbook\` plugin provides the same):
 
-| Type | Gates |
+| When | Read |
 |---|---|
-| \`improvement\` | design → plan → impl |
-| \`bugfix\` | diagnose → fix (\`hotfix\` is a bounded form of this) |
-| \`experiment\` | research → evaluate (never milestoned) |
-
-Each gate is a sub-issue labelled \`{type}:gate-{n}\`. A closed gate means approved. The tree is
-exactly three levels: epic → work item → gate.
-
-**The commitment ladder is DERIVED from gate state — there are no maturity labels.** Walk the
-gates in order; the first not closed decides the rung. Ask for it with \`pm-playbook ladder\`; no
-GitHub filter can compute it.
-
-**Invariants — violating one is a bug, not a style preference:**
-- Exactly **one** type label per work item — never zero, never two (PM010). An \`epic\`, a gate and
-  a \`release-gate\` are not work items for this purpose and need no type.
-- \`experiment\` never carries a milestone. A spike's deliverable is a finding; it feeds the
-  release spine, it never rides it (PM003).
-- **Never create a gate by hand** — \`pm-playbook materialize\` owns them and creates a complete
-  set at once. A hand-made gate destroys the meaning of an absent one.
-- A gate's milestone equals its parent's (PM011); an \`epic\` never carries gates (PM012).
-- \`release-gate\` always has a milestone and never carries \`experiment\`. An open \`release-gate\`
-  means its milestone **cannot be tagged** (PM004/PM005).
-- A non-core \`surface:*\` issue never rides a core \`v*\` milestone (PM006).
-
-**Read the backlog from the local mirror when it exists.** \`${VENDOR_DIR}/backlog/\` holds every
-issue body and comment as files — grep it instead of spending an API round trip per question. It is
-gitignored and machine-local, so its absence means "not pulled here yet", never "no issues", and it
-goes stale as soon as anyone else moves an issue. Reading is local; **writing is not** — edit and
-\`push\` (it refuses when both sides moved), or use \`gh\` directly.
+${routes}
 
 \`\`\`bash
-npx @hoodiecollin/pm-playbook pull     # refresh the mirror (idempotent)
-npx @hoodiecollin/pm-playbook check    # verify before opening a PR — exit 0 means compliant
+npx @hoodiecollin/pm-playbook pull     # refresh the local mirror at ${VENDOR_DIR}/backlog/ (read it, edit via push)
+npx @hoodiecollin/pm-playbook check    # before finishing — exit 0 means compliant
 \`\`\`
 ${END}`;
 }
+
 
 export interface StanzaResult {
   file: string;
