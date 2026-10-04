@@ -133,6 +133,33 @@ export async function renameLabel(repo: string, from: string, to: string): Promi
   await run("gh", ["label", "edit", from, "--repo", repo, "--name", to]);
 }
 
+/**
+ * Create a label, or overwrite an existing one's colour and description. A rename keeps the old
+ * description, and on this model the description is the process, so a migration that renames
+ * without this leaves every renamed label explaining the model it replaced.
+ */
+export async function upsertLabel(repo: string, label: { name: string; color: string; description: string }): Promise<void> {
+  await run("gh", [
+    "label", "create", label.name, "--repo", repo,
+    "--color", label.color, "--description", label.description, "--force",
+  ]);
+}
+
+/** One issue's labels, state and body — what `prove` needs to judge a gate before closing it. */
+export async function issueDetail(
+  repo: string,
+  number: number,
+): Promise<{ title: string; state: string; labels: string[]; body: string }> {
+  const out = await run("gh", ["issue", "view", String(number), "--repo", repo, "--json", "title,state,labels,body"]);
+  const j = JSON.parse(out) as { title: string; state: string; labels: { name: string }[]; body: string };
+  return { title: j.title, state: j.state, labels: j.labels.map((l) => l.name), body: j.body ?? "" };
+}
+
+/** Close an issue with a comment saying why. */
+export async function closeIssue(repo: string, number: number, comment: string): Promise<void> {
+  await run("gh", ["issue", "close", String(number), "--repo", repo, "--comment", comment]);
+}
+
 export async function deleteLabel(repo: string, name: string): Promise<void> {
   await run("gh", ["label", "delete", name, "--repo", repo, "--yes"]);
 }
@@ -149,6 +176,7 @@ export interface IssueRef {
   title: string;
   url: string;
   milestone: string | null;
+  labels?: string[];
 }
 
 export interface PullRequestScope {
@@ -157,16 +185,18 @@ export interface PullRequestScope {
   baseRefName: string;
   /**
    * Issues this PR will actually CLOSE on merge — GitHub's own linkage, driven by closing keywords
-   * in the body or in commits. This is the authoritative set for §5.3: "landing next-cycle work"
+   * in the body or in commits. This is the authoritative set for §5: "landing next-cycle work"
    * means closing a next-cycle issue, so the strict gate reads exactly this and nothing else.
    */
   closing: IssueRef[];
   /** Bare `#N` in the title/body that is not a closing link. Advisory tier — see PM008. */
   mentioned: number[];
+  /** Paths the PR changes (first 100). What PM021 reads to find the regression test. */
+  files?: string[];
 }
 
 /**
- * Everything the cycle-scope gate (§5.3) needs about a PR, in one call.
+ * Everything the cycle-scope gate (§5) needs about a PR, in one call.
  *
  * `closingIssuesReferences` carries the milestone inline, so the strict tier needs no follow-up
  * lookups. Mentions come back as bare numbers for the caller to resolve against the open issue
@@ -180,8 +210,9 @@ export async function pullRequestScope(repo: string, pr: number): Promise<PullRe
         pullRequest(number:$pr){
           number title body baseRefName
           closingIssuesReferences(first:100){
-            nodes{ number title url milestone{ title } }
+            nodes{ number title url milestone{ title } labels(first:50){ nodes{ name } } }
           }
+          files(first:100){ nodes{ path } }
         }
       }
     }`;
@@ -198,11 +229,15 @@ export async function pullRequestScope(repo: string, pr: number): Promise<PullRe
   if (!node) throw new Error(`${repo}#${pr}: not a pull request, or not visible with this token.`);
 
   const closing: IssueRef[] = (node.closingIssuesReferences?.nodes ?? []).map(
-    (n: { number: number; title: string; url: string; milestone: { title: string } | null }) => ({
+    (n: {
+      number: number; title: string; url: string; milestone: { title: string } | null;
+      labels?: { nodes: { name: string }[] };
+    }) => ({
       number: n.number,
       title: n.title,
       url: n.url,
       milestone: n.milestone?.title ?? null,
+      labels: (n.labels?.nodes ?? []).map((l) => l.name),
     }),
   );
 
@@ -212,7 +247,8 @@ export async function pullRequestScope(repo: string, pr: number): Promise<PullRe
     (n) => !closingNumbers.has(n),
   );
 
-  return { number: node.number, title: node.title, baseRefName: node.baseRefName, closing, mentioned };
+  const files: string[] = (node.files?.nodes ?? []).map((f: { path: string }) => f.path);
+  return { number: node.number, title: node.title, baseRefName: node.baseRefName, closing, mentioned, files };
 }
 
 /**
@@ -220,8 +256,8 @@ export async function pullRequestScope(repo: string, pr: number): Promise<PullRe
  *
  * `listIssues` shells out to `gh issue list`, which cannot return a parent at any flag combination.
  * Without this, the networked tier of `check` calls `checkIssues` with no parentage and every
- * structural rule silently does not run — PM105, and under §9's gate model PM011 through PM016 as
- * well. A rule that passes by not running is the §5.5 failure, so the fetch exists to close it.
+ * structural rule silently does not run — PM105, and under the gate model PM011 through PM016 as
+ * well. A rule that passes by not running is the §2 failure, so the fetch exists to close it.
  *
  * Deliberately **all states**. A closed gate still counts toward its parent's gate set and a closed
  * parent is still mis-modelled if it holds children it should not, so scoping this the way the
@@ -383,7 +419,7 @@ function toComment(c: RawComment): Comment {
  * Kind is *derived*, never declared: a `{type}:gate-{n}` label makes it a gate, otherwise a `parent`
  * makes it a sub-issue, the `epic` label makes it an epic, and everything else is standalone. That
  * is what makes "a standalone issue has no sub-issues" true by construction rather than by
- * convention (§7.1).
+ * convention (§7).
  *
  * Gate is tested first and deliberately: a gate always has a parent, so the sub-issue test would
  * swallow it and file it under `subissues/`, collapsing the third level back into the second.

@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 /**
- * PreToolUse guard — block `gh issue create/edit` calls that would violate a label invariant.
+ * PreToolUse guard — block `gh issue create/edit` calls that would violate a label invariant, and
+ * block the agent from closing a gate.
+ *
+ * WHY THE GATE-CLOSE BLOCK EXISTS
+ * A closed gate means a person approved it. The agent runs on that person's GitHub token, so
+ * GitHub cannot tell an agent's close from the maintainer's; this hook is the one place the
+ * difference can be enforced. The maintainer still closes gates — in the UI, or with a `!` command,
+ * which is theirs rather than a tool call. A proof gate may also close through `pm-playbook prove`,
+ * which checks its evidence first.
  *
  * WHY THIS IS PLAIN .mjs AND NOT TYPESCRIPT
  * Claude Code installs plugins straight from git, with no build step and no `npm install`. A hook
@@ -210,7 +218,9 @@ function evaluate({ labels, milestone }) {
   }
   // A gate label on a hand-written `gh issue create` is the one thing that would break the meaning
   // of an ABSENT gate — which is what PM013 relies on. `materialize` owns gate creation entirely.
-  const gate = [...labels].find((l) => /^(improvement|bugfix|experiment):gate-\d+$/.test(l));
+  // Pre-4.0 `{type}:gate-{n}` labels are refused too: one appearing now could only be read as a
+  // stage of a model that no longer exists.
+  const gate = [...labels].find((l) => /^gate:/.test(l) || /^(improvement|bugfix|experiment):gate-\d+$/.test(l));
   if (gate) {
     violations.push(
       `PM105 — \`${gate}\` is a gate label, and gates are never created by hand. The tool creates them as a complete set, which is the only reason an absent gate can mean anything.\n` +
@@ -220,6 +230,80 @@ function evaluate({ labels, milestone }) {
   // PM004 (release-gate requires a milestone) is checked only on `create`: an `edit` that adds the
   // label may be paired with a milestone the issue already has, which this hook cannot see.
   return violations.length ? violations.join("\n\n") : null;
+}
+
+/**
+ * The issue a command would CLOSE, or null. Two shapes:
+ *   gh issue close <n|url> [-R owner/repo]
+ *   gh api [-X PATCH] repos/<owner>/<repo>/issues/<n> -f state=closed
+ * GraphQL `closeIssue` takes a node id that cannot be mapped to a number without a lookup per
+ * call, so it is not covered; neither is a PR whose closing keyword names a gate. Both are stated
+ * limits of a text-only guard, not oversights.
+ */
+function parseClose(tokens) {
+  const gh = tokens.indexOf("gh");
+  if (gh === -1) return null;
+  let repo = null;
+  for (let i = gh + 1; i < tokens.length; i++) {
+    if (tokens[i] === "-R" || tokens[i] === "--repo") repo = tokens[i + 1] ?? null;
+    else if (tokens[i].startsWith("--repo=")) repo = tokens[i].slice("--repo=".length);
+  }
+
+  if (tokens[gh + 1] === "issue" && tokens[gh + 2] === "close") {
+    const target = tokens.slice(gh + 3).find((t) => !t.startsWith("-") && t !== repo);
+    const m = /(?:issues\/)?(\d+)$/.exec(target ?? "");
+    if (!m) return null;
+    const url = /github\.com\/([^/]+\/[^/]+)\/issues\/\d+/.exec(target);
+    return { number: Number(m[1]), repo: url ? url[1] : repo };
+  }
+
+  if (tokens[gh + 1] === "api") {
+    const path = tokens.slice(gh + 2).map((t) => /^\/?repos\/([^/]+\/[^/]+)\/issues\/(\d+)$/.exec(t)).find(Boolean);
+    const closes = tokens.some((t) => /^state=closed$/i.test(t));
+    if (path && closes) return { number: Number(path[2]), repo: path[1] };
+  }
+  return null;
+}
+
+/**
+ * Is #n a gate? The mirror answers first, offline: a gate's directory is `gates/gate-<k>--<n>`, so
+ * one directory listing settles it with no frontmatter parsing. Only on a miss — no mirror, or a
+ * gate created since the last pull — does it ask GitHub, and that is the one network call this hook
+ * ever makes, on a command (closing an issue) that is rare and already about to hit the network.
+ *
+ * Any failure answers "unknown", which the caller treats as "not a gate": this guard fails open.
+ */
+async function isGate(number, repo, cwd) {
+  try {
+    const { readdirSync, existsSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const root = join(cwd || process.cwd(), ".pm-playbook", "backlog");
+    if (existsSync(root)) {
+      const suffix = `--${number}`;
+      const stack = [root];
+      while (stack.length) {
+        const dir = stack.pop();
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          if (entry.name.startsWith("gate-") && entry.name.endsWith(suffix)) return true;
+          if (entry.name !== ".sync") stack.push(join(dir, entry.name));
+        }
+      }
+    }
+  } catch {
+    // fall through to the network
+  }
+  try {
+    const { execFileSync } = await import("node:child_process");
+    const args = ["issue", "view", String(number), "--json", "labels", "--jq", "[.labels[].name] | join(\",\")"];
+    if (repo) args.push("--repo", repo);
+    const out = execFileSync(process.env.PM_PLAYBOOK_GH || "gh", args, {
+      cwd: cwd || process.cwd(), timeout: 8000, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    });
+    return out.split(",").some((l) => /^gate:/.test(l.trim()) || /^(improvement|bugfix|experiment):gate-\d+$/.test(l.trim()));
+  } catch {
+    return false;
+  }
 }
 
 async function main() {
@@ -236,7 +320,23 @@ async function main() {
 
   for (const segment of splitSegments(command)) {
     if (!segment.includes("gh")) continue;
-    const mutation = parseIssueMutation(tokenize(segment));
+    const tokens = tokenize(segment);
+
+    // A closed gate means a PERSON approved it. The agent runs on that person's token, so GitHub
+    // cannot tell the two apart — this is the one place the difference can be enforced.
+    const close = parseClose(tokens);
+    if (close && (await isGate(close.number, close.repo, payload?.cwd))) {
+      deny(
+        `Blocked by pm-playbook — #${close.number} is a gate, and a gate is closed by a human.\n\n` +
+          "Closing a gate records that someone decided: the intent is right, the warrant holds, the verdict stands. " +
+          "An agent closing it would make every closed gate mean nothing.\n" +
+          "  If it is a proof gate whose claims are all proven: `npx @hoodiecollin/pm-playbook prove " + close.number + " --yes`.\n" +
+          "  Otherwise: tell the maintainer it is ready, and stop. They close it in the GitHub UI or with `! gh issue close " + close.number + "`.\n\n" +
+          `Reference: ${DOC}`,
+      );
+    }
+
+    const mutation = parseIssueMutation(tokens);
     if (!mutation) continue;
 
     // PM004 is safe to assert on create, where the full label set is in front of us.
