@@ -1,8 +1,8 @@
 # Architecture
 
-Durable design references for **shipped** features (§10). A feature's design lives on its `rfc`
-issue while it is being built; when it ships, the parts worth keeping land here and the `rfc`
-closes. Anything not yet released is not described here — check the open `rfc` issues instead.
+Durable design references for **shipped** features (PLAYBOOK §8). A feature's design lives in its
+gate issues while it is being built; when it ships, the parts worth keeping land here. Anything not
+yet released is not described here — check the open gate issues instead.
 
 ## Shape of the package
 
@@ -87,8 +87,8 @@ Two deliberate choices in that projection:
 - **Not GitHub's `updatedAt`.** It moves for things we do not model, and under a
   refuse-on-any-change rule that produces false conflicts. A projection hash asserts exactly the
   claim we want: *the remote changed in something we own*.
-- **Comments are included.** The accepted gate artifact is the gate issue (§9.5), but the thread is
-  where a gate is argued, evidenced and reopened (§9.6) — so a body is very often written in answer
+- **Comments are included.** The accepted gate artifact is the gate issue (§8), but the thread is
+  where a gate is argued, evidenced and reopened (§2) — so a body is very often written in answer
   to it, and a new comment must block a stale body push. This fires often on busy issues; being
   forced to re-read before editing is the intended behavior, not friction. The comment *ordinal* is
   excluded, because it is a position rather than an identity.
@@ -117,7 +117,7 @@ smaller, louder, and more trustworthy.
 
 A refused edit is not lost. The next `pull` moves it to `conflicts/` and restores remote truth to
 the canonical path, and `PM104` keeps warning until it is resolved — a gitignored directory quietly
-accumulating abandoned edits is exactly the failure §11 exists to prevent.
+accumulating abandoned edits is exactly the failure §8 exists to prevent.
 
 **The conflict picture is two-way, not three-way**: the local edit under `conflicts/`, remote truth
 at the canonical path. `.sync/index.json` stores hashes only. Detection never needed more, and a
@@ -126,7 +126,7 @@ serve one screen. Adding it later is additive.
 
 ### Reconciled cache, not a shadow backlog
 
-§11 forbids a second copy of the backlog and `PM102` warns about it, so this feature needs its
+§8 forbids a second copy of the backlog and `PM102` warns about it, so this feature needs its
 carve-out stated precisely: **a second copy is a shadow backlog when it can disagree with Issues
 indefinitely.** This one cannot — it is gitignored rather than committed, `pull` overwrites it from
 GitHub, and `push` refuses the moment both sides move. A `TASKS.md` has none of those properties.

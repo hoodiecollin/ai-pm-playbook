@@ -1,6 +1,6 @@
 # Issue-template chooser config.
 # There is a template per WORK TYPE. Gates are created by `pm-playbook materialize`, never
-# filed by hand, so they deliberately have no template (PLAYBOOK §9.3).
+# filed by hand, so they deliberately have no template (PLAYBOOK §2).
 blank_issues_enabled: true
 contact_links:
   - name: Question / discussion

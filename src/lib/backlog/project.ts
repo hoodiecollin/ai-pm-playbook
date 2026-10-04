@@ -7,7 +7,7 @@
  * teammate can edit and `push` silently overwrites their work.
  *
  * Notably included: the **whole comment thread**. The accepted gate artifact is the gate issue
- * itself (PLAYBOOK §9.5), but the thread is where a gate is argued, evidenced and reopened (§9.6),
+ * itself (PLAYBOOK §8), but the thread is where a gate is argued, evidenced and reopened (§8),
  * so a body is very often written in answer to it. A new comment therefore means the issue moved in
  * something we mirror, and being forced to re-read before pushing a body edit is the correct
  * behavior, not friction.

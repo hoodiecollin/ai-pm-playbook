@@ -2,7 +2,7 @@
  * `pm-playbook comment <issue> --body-file <path>` — post a new comment, then re-materialize.
  *
  * The mirror is otherwise read-only in one direction: an agent can read a whole thread and cannot
- * reply to it. Gate acceptances, review answers and evidence all live in comments (§9.6), so the
+ * reply to it. Gate acceptances, review answers and evidence all live in comments (§8), so the
  * thing the doctrine asks for most often was the one thing the tool could not do.
  *
  * **This is not sugar over `gh issue comment`.** Commenting on an issue that has an unpushed local

@@ -27,7 +27,7 @@ import { pendingForRepo } from "./migrate.js";
 import { packageVersion } from "../lib/paths.js";
 import { bool, str, type Args } from "../lib/args.js";
 
-/** §11: "Backlog lives in Issues — no markdown backlog." These filenames are the usual offenders. */
+/** §8: "Backlog lives in Issues — no markdown backlog." These filenames are the usual offenders. */
 const SHADOW_BACKLOGS = ["TODO.md", "TASKS.md", "BACKLOG.md", "ROADMAP.md"];
 
 function localChecks(repoRoot: string, version: string): Violation[] {
@@ -86,11 +86,11 @@ function localChecks(repoRoot: string, version: string): Violation[] {
   }
 
   // PM104 — conflict drafts that nobody has resolved. A gitignored directory quietly accumulating
-  // abandoned edits is the §11 failure the whole feature is built to avoid, arrived at by accretion.
+  // abandoned edits is the §8 failure the whole feature is built to avoid, arrived at by accretion.
   const conflicts = listConflicts(backlogRoot(repoRoot));
   if (conflicts.length) {
     out.push({
-      rule: "PM104", severity: "warn", section: "§11", file: `${VENDOR_DIR}/${BACKLOG_DIR}/conflicts`,
+      rule: "PM104", severity: "warn", section: "§8", file: `${VENDOR_DIR}/${BACKLOG_DIR}/conflicts`,
       message: `${conflicts.length} unresolved conflict draft(s): ${conflicts.join(", ")}. Each is a local edit that lost a race and is waiting on a decision.`,
       fix: "Re-apply each edit to the current issue and delete the draft, or delete it if it is no longer wanted.",
     });
@@ -100,7 +100,7 @@ function localChecks(repoRoot: string, version: string): Violation[] {
   for (const name of SHADOW_BACKLOGS) {
     if (!existsSync(join(repoRoot, name))) continue;
     out.push({
-      rule: "PM102", severity: "warn", section: "§11", file: name,
+      rule: "PM102", severity: "warn", section: "§8", file: name,
       message: `${name} looks like a shadow backlog. Issues are the backlog; a markdown list is a second source of truth that drifts.`,
       fix: `Move its live entries to issues (\`gh issue create\`) and delete ${name}. Derived, generated roadmaps are fine — mark them generated, or materialize the real backlog with \`pm-playbook pull\`.`,
     });
@@ -155,7 +155,7 @@ export async function check(args: Args, repoRoot: string): Promise<number> {
        * It reports rather than refusing to run: the offline tier exists for sandboxes and
        * air-gapped CI, which is exactly where partial mirrors will be most common, and a check that
        * declines to start there is the "passes by not running" failure wearing a different face
-       * (§5.5). A clean run over a subset stays clean — it just stops being reportable as a clean
+       * (§2). A clean run over a subset stays clean — it just stops being reportable as a clean
        * run over the backlog.
        */
       const shortfallNote = shortfall(readCoverage(root));

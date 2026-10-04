@@ -108,7 +108,7 @@ function depthBlock(n: Neighbour): string {
   const lines = [`### #${n.number} — ${n.title}`, ""];
   lines.push(`_${RELATION_LABEL[n.relation]}${n.rung ? ` · ${n.rung}` : ""}_`);
   lines.push("");
-  // Absence is stated rather than guessed at. §9.6's contract returns nothing when the slot is
+  // Absence is stated rather than guessed at. §8's contract returns nothing when the slot is
   // missing, and a fallback to "the first section" is 13 different things across this backlog.
   lines.push(n.summary === null || n.summary === undefined
     ? "_No summary section on this issue._"

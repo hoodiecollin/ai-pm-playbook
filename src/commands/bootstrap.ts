@@ -41,7 +41,7 @@ export async function bootstrap(args: Args, repoArg?: string): Promise<number> {
   /*
    * A label that fails to write leaves the repo half-provisioned, and every downstream check reads
    * a missing label as "nothing is labelled that way" rather than "the label was never created".
-   * So failures are counted and returned as a non-zero exit rather than warned past — §5.5: a
+   * So failures are counted and returned as a non-zero exit rather than warned past — §2: a
    * report is not a gate, and CI only notices what changes the exit code.
    */
   let failed = 0;
