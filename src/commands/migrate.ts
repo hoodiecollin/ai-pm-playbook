@@ -14,7 +14,7 @@ import { MIGRATIONS, pendingMigrations, planMigrations, type LabelAction } from 
 import { readManifest, setMigratedThrough } from "../lib/vendor.js";
 import { packageVersion } from "../lib/paths.js";
 import {
-  deleteLabel, detectRepo, listIssues, listLabels, relabelIssue, renameLabel, requireGh,
+  deleteLabel, detectRepo, listIssues, listLabels, relabelIssue, renameLabel, requireGh, upsertLabel,
 } from "../lib/gh.js";
 import { bool, str, type Args } from "../lib/args.js";
 
@@ -77,6 +77,7 @@ export async function migrate(args: Args, repoRoot: string): Promise<number> {
         case "rename": console.log(`  rename  ${a.from} → ${a.to}${scope}`); break;
         case "merge":  console.log(`  MERGE   ${a.from} → ${a.to} — ${a.reason}${scope}`); break;
         case "remove": console.log(`  REMOVE  ${a.from} — ${a.reason}${scope}`); break;
+        case "describe": console.log(`  describe ${a.from} — ${a.reason}`); break;
         case "skip":   console.log(`  skip    ${a.from} — ${a.reason}`); break;
       }
     }
@@ -85,7 +86,7 @@ export async function migrate(args: Args, repoRoot: string): Promise<number> {
     if (work.length === 0) {
       console.log("Nothing to do on this repo — recording progress.");
     } else if (!apply) {
-      const destructive = work.filter((a) => a.kind !== "rename").length;
+      const destructive = work.filter((a) => a.kind === "merge" || a.kind === "remove").length;
       console.log(`${work.length} action(s) to apply${destructive ? `, ${destructive} of them destructive` : ""}.`);
       console.log("This was a preview. Re-run with --yes to apply.");
       return 0;
@@ -108,6 +109,9 @@ export async function migrate(args: Args, repoRoot: string): Promise<number> {
       } else if (a.kind === "remove") {
         console.log(`  deleting ${a.from} (was on ${a.affected.length} issue(s))`);
         await deleteLabel(repo, a.from);
+      } else if (a.kind === "describe") {
+        console.log(`  describing ${a.from}`);
+        await upsertLabel(repo, a.label!);
       }
     }
   } catch (err) {
@@ -135,6 +139,16 @@ export async function migrate(args: Args, repoRoot: string): Promise<number> {
     console.log("     pm-playbook materialize --yes");
     console.log("");
     console.log("Run `pm-playbook check` — PM010 and PM013 enumerate exactly what is still owed.");
+  }
+  if (pending.some((m) => m.version === "4.0.0")) {
+    console.log("");
+    console.log("LABELS are migrated to 4.0. Two things are still owed, and `check` names both:");
+    console.log("  1. Every OPEN `gate:retired` is a stage of the old model. Close each as not planned");
+    console.log("     (PM020): gh issue close <n> --reason \"not planned\"");
+    console.log("  2. Work on the cycle in flight needs its 4.x gates (PM013) — an improvement past");
+    console.log("     design now owes a proof gate, and a hotfix owes a warrant:");
+    console.log("     pm-playbook materialize --yes");
+    console.log("  Then re-run `init` so the vendored doctrine and skills are the 4.x ones.");
   }
   return 0;
 }

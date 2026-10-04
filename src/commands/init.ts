@@ -7,12 +7,12 @@
  * not a side effect of installing a dependency.
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { DEFAULT_AGENT_FILE, detectAgentFiles, planStanza, writeStanza } from "../lib/agent-files.js";
 import { PLAYBOOK_ASSETS, TEMPLATE_ASSETS, packageName, packageVersion } from "../lib/paths.js";
-import { BACKLOG_DIR, VENDOR_DIR, planVendor, readManifest, writeVendor } from "../lib/vendor.js";
+import { BACKLOG_DIR, VENDOR_DIR, planVendor, readManifest, sha256, writeVendor } from "../lib/vendor.js";
 import { bool, list, str, type Args } from "../lib/args.js";
 import { bootstrap } from "./bootstrap.js";
 
@@ -105,10 +105,24 @@ export async function init(args: Args, repoRoot: string): Promise<number> {
     for (const f of plan.added) console.log(`${tag}  + ${VENDOR_DIR}/${f}`);
     for (const f of [...plan.updated, ...plan.conflicted]) console.log(`${tag}  ~ ${VENDOR_DIR}/${f}`);
   }
+  // A file the package wrote and nobody has edited since is removed when the package stops
+  // shipping it: leaving it would keep a retired doctrine readable in the repo, and an agent
+  // reading `AGENT.md` from 3.x cannot tell it is retired. A file someone edited is theirs, so it
+  // is reported and kept.
+  const shipped = readManifest(repoRoot)?.files ?? {};
+  let removed = 0;
   for (const f of plan.orphaned) {
-    console.log(`${tag}  ! ${VENDOR_DIR}/${f} — no longer shipped; safe to delete`);
+    const path = join(repoRoot, VENDOR_DIR, ...f.split("/"));
+    const untouched = shipped[f] !== undefined && sha256(readFileSync(path, "utf8")) === shipped[f];
+    if (untouched) {
+      if (!dry) rmSync(path);
+      removed += 1;
+      console.log(`${tag}  - ${VENDOR_DIR}/${f} — no longer shipped`);
+    } else {
+      console.log(`${tag}  ! ${VENDOR_DIR}/${f} — no longer shipped, and edited locally; delete it once you have kept what you need`);
+    }
   }
-  if (!dry && (changes > 0 || versionStale)) writeVendor(repoRoot, PLAYBOOK_ASSETS, version, packageName());
+  if (!dry && (changes > 0 || versionStale || removed > 0)) writeVendor(repoRoot, PLAYBOOK_ASSETS, version, packageName());
 
   // 2. Issue templates -------------------------------------------------------
   if (!bool(args, "no-templates")) {
@@ -164,6 +178,6 @@ export async function init(args: Args, repoRoot: string): Promise<number> {
     console.log("  2. Set group-by on the Release spine / Surface / Execution boards in the UI.");
   }
   console.log("  3. Add the check to CI:  npx @hoodiecollin/pm-playbook check --repo <owner>/<name>");
-  console.log(`  4. Read ${VENDOR_DIR}/AGENT.md yourself — it is the map your agents will use.`);
+  console.log(`  4. Read ${VENDOR_DIR}/skills/pm-playbook/SKILL.md yourself — it is the map your agents will use.`);
   return 0;
 }

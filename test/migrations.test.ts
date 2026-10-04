@@ -178,3 +178,49 @@ describe("the 2.0.0 entry — the first real migration", () => {
     expect(m[0]!.removals).toHaveLength(9);
   });
 });
+
+describe("the 4.0.0 entry — gates close on evidence", () => {
+  const m = MIGRATIONS.filter((x) => x.version === "4.0.0");
+  const v3 = [
+    "improvement", "bugfix", "experiment",
+    "improvement:gate-1", "improvement:gate-2", "improvement:gate-3",
+    "bugfix:gate-1", "bugfix:gate-2", "experiment:gate-1", "experiment:gate-2",
+  ];
+  const carriers = [
+    { number: 1, labels: ["improvement:gate-1"] },
+    { number: 2, labels: ["improvement:gate-2"] },
+    { number: 3, labels: ["improvement:gate-3"] },
+    { number: 4, labels: ["bugfix:gate-1"] },
+  ];
+
+  test("a 3.x repo upgrading to the installed 4.0 owes it", () => {
+    expect(pendingMigrations("3.0.0", "4.0.0").map((x) => x.version)).toEqual(["4.0.0"]);
+  });
+
+  test("design becomes intent in place — the one old gate with a 4.x meaning on the spine", () => {
+    const a = planMigrations(m, v3, carriers).find((x) => x.from === "improvement:gate-1")!;
+    expect(a.kind).toBe("rename");
+    expect(a.to).toBe("gate:intent");
+  });
+
+  test("plan, impl, diagnose and fix fold onto gate:retired — never onto a live gate", () => {
+    const actions = planMigrations(m, v3, carriers);
+    const folds = ["improvement:gate-2", "improvement:gate-3", "bugfix:gate-1", "bugfix:gate-2"]
+      .map((n) => actions.find((a) => a.from === n)!);
+    expect(folds.map((a) => a.to)).toEqual(["gate:retired", "gate:retired", "gate:retired", "gate:retired"]);
+    expect(folds.map((a) => a.kind)).toEqual(["rename", "merge", "merge", "merge"]);
+    expect(folds[1]!.affected).toEqual([3]);
+  });
+
+  test("every label it defines gets this release's description — a rename keeps the old one", () => {
+    const described = planMigrations(m, v3, carriers).filter((a) => a.kind === "describe").map((a) => a.from);
+    for (const name of ["improvement", "gate:intent", "gate:proof", "gate:warrant", "gate:retired"]) {
+      expect(described).toContain(name);
+    }
+  });
+
+  test("describe runs after the renames, so it writes onto the renamed label", () => {
+    const kinds = planMigrations(m, v3, carriers).map((a) => a.kind);
+    expect(kinds.lastIndexOf("rename")).toBeLessThan(kinds.indexOf("describe"));
+  });
+});

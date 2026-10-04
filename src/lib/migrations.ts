@@ -11,6 +11,8 @@
  * whichever ran first would erase the other's evidence that work was still pending.
  */
 
+import { GATE_LABELS, RETIRED_GATE, RETIRED_GATE_LABEL, TYPE_LABELS, type LabelSpec } from "./model.js";
+
 /** Rename a label in place, preserving every issue assignment. */
 export interface LabelRename {
   from: string;
@@ -29,6 +31,13 @@ export interface Migration {
   summary: string;
   renames: LabelRename[];
   removals: LabelRemoval[];
+  /**
+   * Labels whose colour and description this release defines. Each is written when the plan renames
+   * or merges onto it, or when it does not exist yet — a rename keeps the OLD description, and the
+   * description is the process, so skipping this leaves a renamed label explaining the model it
+   * replaced.
+   */
+  labels?: LabelSpec[];
 }
 
 /**
@@ -76,6 +85,31 @@ export const MIGRATIONS: Migration[] = [
       { name: "wontfix", reason: "GitHub stock label; \"closed as not planned\" is native now." },
     ],
   },
+  {
+    version: "4.0.0",
+    summary: "Gates close on evidence: improvement is intent → proof, a plain bugfix has no gates, labels become gate:<verb>.",
+    /*
+     * Only two old gates have a 4.x meaning close enough to keep: design → intent (both are "what
+     * and why", decided by a human) and the experiment pair, which is unchanged in substance.
+     * Everything else — plan, impl, diagnose, fix — has no 4.x equivalent, and keeping its label
+     * under a new name would let an old gate be read as a new one: a closed PLAN gate read as a
+     * closed PROOF gate skips exactly the evidence 4.0 exists to require. So they all fold onto
+     * `gate:retired`, which keeps history's shape (a closed gate is still a gate) and means nothing.
+     *
+     * The first fold is an in-place rename and the rest are merges, the same fan-in 2.0 used.
+     */
+    renames: [
+      { from: "improvement:gate-1", to: "gate:intent" },
+      { from: "experiment:gate-1", to: "gate:charter" },
+      { from: "experiment:gate-2", to: "gate:verdict" },
+      { from: "improvement:gate-2", to: RETIRED_GATE },
+      { from: "improvement:gate-3", to: RETIRED_GATE },
+      { from: "bugfix:gate-1", to: RETIRED_GATE },
+      { from: "bugfix:gate-2", to: RETIRED_GATE },
+    ],
+    removals: [],
+    labels: [...TYPE_LABELS, ...GATE_LABELS, RETIRED_GATE_LABEL],
+  },
 ];
 
 /** Compare `1.2.10`-style versions numerically. Pre-release suffixes are ignored. */
@@ -107,12 +141,14 @@ export function pendingMigrations(
     .sort((a, b) => compareSemver(a.version, b.version));
 }
 
-export type LabelActionKind = "rename" | "merge" | "remove" | "skip";
+export type LabelActionKind = "rename" | "merge" | "remove" | "describe" | "skip";
 
 export interface LabelAction {
   kind: LabelActionKind;
   from: string;
   to?: string;
+  /** For `describe`: the colour and description to write. */
+  label?: LabelSpec;
   /** Issue numbers that carry the source label — the blast radius of a merge or removal. */
   affected: number[];
   reason: string;
@@ -142,6 +178,9 @@ export function planMigrations(
   const actions: LabelAction[] = [];
 
   for (const m of migrations) {
+    /** Labels this plan renames or merges onto — their descriptions are about to be stale. */
+    const landedOn = new Set<string>();
+
     for (const r of m.renames) {
       const hasFrom = labels.has(r.from);
       const hasTo = labels.has(r.to);
@@ -158,6 +197,7 @@ export function planMigrations(
         actions.push({ kind: "rename", from: r.from, to: r.to, affected: carriers(r.from), reason: "in-place rename; assignments preserved" });
         labels.delete(r.from);
         labels.add(r.to);
+        landedOn.add(r.to);
         continue;
       }
       actions.push({
@@ -165,6 +205,20 @@ export function planMigrations(
         reason: `both labels exist — relabel carriers onto \`${r.to}\`, then delete \`${r.from}\``,
       });
       labels.delete(r.from);
+      landedOn.add(r.to);
+    }
+
+    // Every label the release defines is written, not just the renamed ones: an unrenamed label's
+    // description can change too (`improvement` no longer says design → plan → impl). Writing is an
+    // upsert, so this is idempotent, and `migratedThrough` stops a migrated repo replaying it.
+    for (const spec of m.labels ?? []) {
+      actions.push({
+        kind: "describe", from: spec.name, label: spec, affected: [],
+        reason: landedOn.has(spec.name)
+          ? "renamed onto — replace the description it carried over"
+          : labels.has(spec.name) ? "write this release's description" : "new in this release — create it",
+      });
+      labels.add(spec.name);
     }
 
     for (const rm of m.removals) {
