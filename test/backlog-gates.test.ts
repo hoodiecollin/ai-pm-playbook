@@ -16,6 +16,7 @@ import { readTree, writeTree } from "../src/lib/backlog/store.js";
 import { projectionHash } from "../src/lib/backlog/project.js";
 import { validateDrafts } from "../src/lib/backlog/draft.js";
 import type { BacklogEntity } from "../src/lib/backlog/model.js";
+import { gateLabel } from "../src/lib/model.js";
 
 const base = {
   title: "t",
@@ -32,7 +33,7 @@ const work = (over: Partial<BacklogEntity> = {}): BacklogEntity =>
 const sub = (over: Partial<BacklogEntity> = {}): BacklogEntity =>
   ({ ...base, number: 4, kind: "subissue", parent: 3, state: "OPEN", labels: ["improvement"], ...over });
 const gate = (n: number, over: Partial<BacklogEntity> = {}): BacklogEntity =>
-  ({ ...base, number: 40 + n, kind: "gate", parent: 7, state: "OPEN", labels: [`improvement:gate-${n}`], ...over });
+  ({ ...base, number: 40 + n, kind: "gate", parent: 7, state: "OPEN", labels: [gateLabel("improvement", n)], ...over });
 
 describe("gateDirName", () => {
   test("ordinal first for listing order, number second for identity", () => {
@@ -75,7 +76,7 @@ describe("entityDir — gates", () => {
   });
 
   test("bodyPath appends body.md at the gate level", () => {
-    expect(bodyPath(gate(3), [work()])).toBe("standalone/7/gates/gate-3--43/body.md");
+    expect(bodyPath(gate(2), [work()])).toBe("standalone/7/gates/gate-2--42/body.md");
   });
 });
 
@@ -151,8 +152,8 @@ describe("the projection is unmoved by the separator change", () => {
 describe("gates are tool-materialized, never drafted", () => {
   test("a draft carrying a gate label is refused before anything is created", () => {
     const problems = validateDrafts(
-      [{ slug: "thing", number: null, kind: "standalone", title: "t", labels: ["improvement:gate-1"], milestone: null, body: "", children: [] }],
-      ["improvement:gate-1"],
+      [{ slug: "thing", number: null, kind: "standalone", title: "t", labels: ["gate:intent"], milestone: null, body: "", children: [] }],
+      ["gate:intent"],
       [],
     );
     expect(problems).toHaveLength(1);

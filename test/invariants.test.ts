@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { RULES, checkIssues, checkPullRequestScope, releaseBlockers } from "../src/lib/invariants.js";
+import { RULES, checkBugfixEvidence, checkIssues, checkPullRequestScope, releaseBlockers } from "../src/lib/invariants.js";
 import { compareMilestones, currentCycle, isCoreMilestone, parseVersion } from "../src/lib/model.js";
 import type { Issue } from "../src/lib/gh.js";
 
@@ -112,7 +112,7 @@ describe("PM010 — exactly one work type (§3.1)", () => {
     expect(rules([issue({ labels: ["epic"] })])).toEqual([]);
   });
   test("a gate takes its type from its own label, not a second one", () => {
-    expect(rules([issue({ labels: ["improvement:gate-1"] })])).toEqual([]);
+    expect(rules([issue({ labels: ["gate:intent"] })])).toEqual([]);
   });
   test("the fix names a concrete label to add", () => {
     const [v] = checkIssues([issue({ labels: [] })]);
@@ -167,7 +167,7 @@ describe("PM015 — a patch milestone holds exactly one work item (§5.6)", () =
     expect(rules([issue({ labels: ["bugfix", "hotfix"], milestone: "v1.2.1" })])).toEqual([]);
   });
   test("silent for its gates, which ride the same milestone", () => {
-    expect(rules([issue({ labels: ["bugfix:gate-1"], milestone: "v1.2.1" })])).toEqual([]);
+    expect(rules([issue({ labels: ["gate:warrant"], milestone: "v1.2.1" })])).toEqual([]);
   });
 
   /*
@@ -231,8 +231,7 @@ describe("PM015 — a patch milestone holds exactly one work item (§5.6)", () =
   test("one work item + its gates + a release-gate is clean", () => {
     expect(rules([
       issue({ labels: ["bugfix", "hotfix"], milestone: "v1.2.1" }),
-      issue({ labels: ["bugfix:gate-1"], milestone: "v1.2.1" }),
-      issue({ labels: ["bugfix:gate-2"], milestone: "v1.2.1" }),
+      issue({ labels: ["gate:warrant"], milestone: "v1.2.1" }),
       issue({ labels: ["release-gate"], milestone: "v1.2.1" }),
     ])).toEqual([]);
   });
@@ -495,10 +494,47 @@ describe("clean backlog", () => {
         issue({ labels: ["bugfix"], milestone: "v0.4.0" }),
         issue({ labels: ["bugfix", "hotfix"], milestone: "v0.3.1" }),
         issue({ labels: ["experiment"] }),
-        issue({ labels: ["improvement:gate-2"], milestone: "v0.4.0" }),
+        issue({ labels: ["gate:proof"], milestone: "v0.4.0" }),
         issue({ labels: ["improvement", "release-gate"], milestone: "v0.4.0" }),
         issue({ labels: ["improvement", "surface:website"], milestone: "web-2026-08" }),
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("PM020 — no pre-4.0 gate is still in play (§2)", () => {
+  test("an open retired gate is flagged, and the fix closes it as not planned", () => {
+    const [v] = checkIssues([issue({ labels: ["gate:retired"] })]);
+    expect(v!.rule).toBe("PM020");
+    expect(v!.fix).toContain("not planned");
+  });
+  test("a closed retired gate is history, and silent", () => {
+    expect(rules([issue({ labels: ["gate:retired"], state: "CLOSED" })])).toEqual([]);
+  });
+  test("a legacy label means the migration has not run", () => {
+    const found = checkIssues([issue({ labels: ["improvement:gate-2"] })]);
+    expect(found.find((v) => v.rule === "PM020")!.fix).toContain("migrate");
+  });
+});
+
+describe("PM021 — a PR that closes a bugfix changes a test (§3)", () => {
+  const scope = (labels: string[], files: string[]) => ({
+    number: 5, title: "fix", baseRefName: "main", mentioned: [], files,
+    closing: [{ number: 9, title: "bug", url: "u", milestone: null, labels }],
+  });
+
+  test("a bugfix PR with no test file is an error", () => {
+    expect(checkBugfixEvidence(scope(["bugfix"], ["src/lib/parse.ts"])).map((v) => v.rule)).toEqual(["PM021"]);
+  });
+  test("any common test layout satisfies it", () => {
+    for (const f of ["test/parse.test.ts", "src/parse.spec.ts", "pkg/parse_test.go", "tests/it.rs", "app/test_parse.py", "a/__tests__/x.js"]) {
+      expect(checkBugfixEvidence(scope(["bugfix"], ["src/x.ts", f]))).toEqual([]);
+    }
+  });
+  test("an improvement is not held to it — its evidence lives in the proof gate", () => {
+    expect(checkBugfixEvidence(scope(["improvement"], ["src/x.ts"]))).toEqual([]);
+  });
+  test("a custom pattern can name a layout the default misses", () => {
+    expect(checkBugfixEvidence(scope(["bugfix"], ["checks/regress/x.sh"]), /^checks\//)).toEqual([]);
   });
 });

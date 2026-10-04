@@ -177,7 +177,7 @@ describe("the coverage record", () => {
 describe("expand feeds the covered set that protects all three", () => {
   test("a milestone scope covers its members and their gates, and nothing else", () => {
     const on = entity({ number: 1, milestone: "v1.0.0" });
-    const gate = entity({ number: 2, parent: 1, kind: "gate", labels: ["improvement:gate-1"], milestone: "v1.0.0" });
+    const gate = entity({ number: 2, parent: 1, kind: "gate", labels: ["gate:intent"], milestone: "v1.0.0" });
     const off = entity({ number: 3, milestone: "v2.0.0" });
     expect([...expand([on, gate, off], scope(["--milestone", "v1.0.0"]))].sort((a, b) => a - b)).toEqual([1, 2]);
   });

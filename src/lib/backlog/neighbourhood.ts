@@ -58,9 +58,13 @@ function rungOf(e: BacklogEntity, gates: BacklogEntity[]): string | null {
 
   const views: GateView[] = gates
     .map((g) => ({ n: gateOf(g.labels)!.n, state: g.state }))
+    .filter((g) => g.n > 0)
     .sort((a, b) => a.n - b.n);
 
-  const item: WorkItemView = { number: e.number, type, state: e.state, milestone: e.milestone, gates: views };
+  const item: WorkItemView = {
+    number: e.number, type, state: e.state, milestone: e.milestone,
+    hotfix: e.labels.includes("hotfix"), gates: views,
+  };
   return ladderState(item).state;
 }
 
@@ -139,14 +143,14 @@ export function neighboursOf(entities: Iterable<BacklogEntity>, subject: number)
  * Which neighbours the depth layer should expand, in order.
  *
  * **Closed neighbours are roster-only, always.** That is what collapses the milestone ring by
- * roughly 90% with nothing hidden — and it is also what makes §9.6's open-only summary guarantee
+ * roughly 90% with nothing hidden — and it is also what makes §8's open-only summary guarantee
  * exactly sufficient rather than merely convenient.
  */
 export function expandable(neighbours: Neighbour[]): Neighbour[] {
   return neighbours.filter((n) => n.state === "OPEN");
 }
 
-/** Attach each neighbour's own summary. Absence stays null — never a guess (§9.6). */
+/** Attach each neighbour's own summary. Absence stays null — never a guess (§8). */
 export function withSummaries(
   neighbours: Neighbour[],
   entities: Map<number, BacklogEntity>,

@@ -10,7 +10,7 @@
  * So the answer moves here. §8's board still answers "what is being worked on" from the gate labels
  * themselves, where the state genuinely is a label; this answers "what stage is each work item at",
  * which needs computation. `--json` makes it consumable by an agent or a roadmap generator, which is
- * how §7.2's buckets get computed now.
+ * how §7's buckets get computed now.
  */
 
 import { currentCycle, gateOf, workTypeOf } from "../lib/model.js";
@@ -68,7 +68,7 @@ export async function ladder(args: Args, repoRoot: string): Promise<number> {
     for (const c of childrenOf.get(number) ?? []) {
       const child = parentage.all.get(c);
       const g = child ? gateOf(child.labels) : null;
-      if (child && g) {
+      if (child && g && !g.retired) {
         gates.push({ n: g.n, number: c, state: child.state.toUpperCase() === "CLOSED" ? "CLOSED" : "OPEN" });
       }
     }
@@ -78,6 +78,7 @@ export async function ladder(args: Args, repoRoot: string): Promise<number> {
       type,
       state: issue.state.toUpperCase() === "CLOSED" ? "CLOSED" : "OPEN",
       milestone: issue.milestone,
+      hotfix: issue.labels.includes("hotfix"),
       gates,
     };
 

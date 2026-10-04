@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 
 import { checkBodies } from "../src/lib/invariants.js";
 import { SUMMARY_HEADING } from "../src/lib/backlog/summary.js";
+import { GATES, gateMarker } from "../src/lib/model.js";
 import type { BacklogEntity, EntityKind } from "../src/lib/backlog/model.js";
 
 let counter = 0;
@@ -66,7 +67,7 @@ describe("PM017 — who it applies to", () => {
   });
 
   test("a gate is exempt — its body is seeded with mandated structure", () => {
-    expect(rules([entity({ labels: ["improvement:gate-1"], kind: "gate", body: "### Problem\n" })])).toEqual([]);
+    expect(rules([entity({ labels: ["gate:intent"], kind: "gate", body: "### Problem\n" })])).toEqual([]);
   });
 
   test("a release-gate is exempt for the same reason", () => {
@@ -86,5 +87,40 @@ describe("PM017 — severity", () => {
   test("it is a warning: adopting the playbook must not fail check on the whole backlog", () => {
     const [v] = checkBodies([entity({ body: "### Something else\n" })], "o/r");
     expect(v!.severity).toBe("warn");
+  });
+});
+
+describe("PM018 / PM019 — a closed gate records a decision (§2)", () => {
+  const PROOF_SEED = GATES.improvement.find((g) => g.verb === "proof")!.seed;
+  const INTENT_SEED = GATES.improvement.find((g) => g.verb === "intent")!.seed;
+  const body = (seed: string) => `${gateMarker(1)}\n\n> d\n\n${seed}\n`;
+  const parent = (state: "OPEN" | "CLOSED" = "OPEN") => entity({ number: 1, state });
+  const gate = (label: string, b: string, over: Partial<BacklogEntity> = {}) =>
+    entity({ kind: "gate", parent: 1, labels: [label], state: "CLOSED", body: b, ...over });
+  const provenProof = body(PROOF_SEED)
+    .replace("|---|---|---|", "|---|---|---|\n| it builds | ran | `cargo build` ok |")
+    .replace(/(### One-way doors\n<!--[\s\S]*?-->)/, "$1\nNone");
+
+  test("PM019 — a closed gate still holding its seed", () => {
+    expect(rules([parent(), gate("gate:intent", body(INTENT_SEED))])).toContain("PM019");
+  });
+
+  test("PM018 — a closed proof gate resting on an assumption", () => {
+    const b = provenProof.replace("| it builds | ran | `cargo build` ok |", "| it is fast | assumed | |");
+    expect(rules([parent(), gate("gate:proof", b)])).toEqual(["PM018"]);
+  });
+
+  test("a proven, closed proof gate is clean", () => {
+    expect(rules([parent(), gate("gate:proof", provenProof)])).toEqual([]);
+  });
+
+  test("an OPEN gate is not judged — it is still being written", () => {
+    expect(rules([parent(), gate("gate:proof", body(PROOF_SEED), { state: "OPEN" })])).toEqual([]);
+  });
+
+  test("history is not retrofitted: a closed parent, or a gate from before 4.0", () => {
+    expect(rules([parent("CLOSED"), gate("gate:intent", body(INTENT_SEED))])).toEqual([]);
+    const v3 = body(INTENT_SEED).replace(gateMarker(1), "<!-- pm-playbook:gate parent=#1 -->");
+    expect(rules([parent(), gate("gate:intent", v3)])).toEqual([]);
   });
 });

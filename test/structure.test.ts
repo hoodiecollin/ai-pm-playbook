@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 
 import { checkIssues } from "../src/lib/invariants.js";
 import type { Issue } from "../src/lib/gh.js";
+import { RETIRED_GATE, gateLabel } from "../src/lib/model.js";
 
 let counter = 100;
 const issue = (over: Partial<Issue> = {}): Issue => {
@@ -42,22 +43,28 @@ function tree(links: [child: Issue, parent: Issue][], extra: Issue[] = []) {
 const structural = (t: ReturnType<typeof tree>, cycle: string | null = null) =>
   checkIssues([], null, t, cycle).map((v) => v.rule);
 
-describe("PM011 — a gate rides its parent's milestone (§9)", () => {
+const INTENT = gateLabel("improvement", 1);
+const PROOF = gateLabel("improvement", 2);
+const WARRANT = gateLabel("bugfix", 1);
+const CHARTER = gateLabel("experiment", 1);
+const VERDICT = gateLabel("experiment", 2);
+
+describe("PM011 — a gate rides its parent's milestone (§2)", () => {
   test("flags a gate on a different milestone", () => {
     const parent = issue({ milestone: "v2.0.0" });
-    const gate = issue({ labels: ["improvement:gate-1"], milestone: "v2.1.0" });
+    const gate = issue({ labels: [INTENT], milestone: "v2.1.0" });
     expect(structural(tree([[gate, parent]]))).toContain("PM011");
   });
 
   test("silent when they match", () => {
     const parent = issue({ milestone: "v2.0.0" });
-    const gate = issue({ labels: ["improvement:gate-1"], milestone: "v2.0.0" });
+    const gate = issue({ labels: [INTENT], milestone: "v2.0.0" });
     expect(structural(tree([[gate, parent]]))).toEqual([]);
   });
 
   test("flags a milestoned gate under an unmilestoned parent", () => {
     const parent = issue();
-    const gate = issue({ labels: ["improvement:gate-1"], milestone: "v2.0.0" });
+    const gate = issue({ labels: [INTENT], milestone: "v2.0.0" });
     const found = checkIssues([], null, tree([[gate, parent]]));
     expect(found[0]!.rule).toBe("PM011");
     expect(found[0]!.fix).toContain("--remove-milestone");
@@ -65,15 +72,21 @@ describe("PM011 — a gate rides its parent's milestone (§9)", () => {
 
   test("an experiment's gates are unmilestoned, like the experiment", () => {
     const parent = issue({ labels: ["experiment"] });
-    const gate = issue({ labels: ["experiment:gate-1"] });
+    const gate = issue({ labels: [CHARTER] });
     expect(structural(tree([[gate, parent]]))).toEqual([]);
+  });
+
+  test("a retired gate still rides its parent — history keeps its shape", () => {
+    const parent = issue({ milestone: "v2.0.0" });
+    const gate = issue({ labels: [RETIRED_GATE], milestone: "v1.0.0", state: "CLOSED" });
+    expect(structural(tree([[gate, parent]]))).toContain("PM011");
   });
 });
 
-describe("PM012 — an epic never carries gates (§7.1)", () => {
+describe("PM012 — an epic never carries gates (§7)", () => {
   test("flags a gate hanging off an epic", () => {
     const epic = issue({ labels: ["epic"] });
-    const gate = issue({ labels: ["improvement:gate-1"] });
+    const gate = issue({ labels: [INTENT] });
     expect(structural(tree([[gate, epic]]))).toContain("PM012");
   });
 
@@ -84,15 +97,15 @@ describe("PM012 — an epic never carries gates (§7.1)", () => {
 
   test("does NOT double-report as PM105 — the epic clause is PM012's job", () => {
     const epic = issue({ labels: ["epic"] });
-    const gate = issue({ labels: ["improvement:gate-1"] });
+    const gate = issue({ labels: [INTENT] });
     expect(structural(tree([[gate, epic]]))).toEqual(["PM012"]);
   });
 });
 
-describe("PM105 — the depth cap (§7.1)", () => {
+describe("PM105 — the depth cap (§7)", () => {
   test("a gate on a gate is refused — three levels is the whole tree", () => {
-    const outer = issue({ labels: ["improvement:gate-1"] });
-    const inner = issue({ labels: ["improvement:gate-2"] });
+    const outer = issue({ labels: [INTENT] });
+    const inner = issue({ labels: [PROOF] });
     const found = checkIssues([], null, tree([[inner, outer]]));
     expect(found.map((v) => v.rule)).toContain("PM105");
     expect(found.find((v) => v.rule === "PM105")!.message).toContain("is itself a gate");
@@ -100,7 +113,7 @@ describe("PM105 — the depth cap (§7.1)", () => {
 
   test("a gate under an untyped parent is refused", () => {
     const parent = issue({ labels: [] });
-    const gate = issue({ labels: ["improvement:gate-1"] });
+    const gate = issue({ labels: [INTENT] });
     const found = checkIssues([], null, tree([[gate, parent]]));
     expect(found.find((v) => v.rule === "PM105")!.message).toContain("carries no work type");
   });
@@ -108,49 +121,61 @@ describe("PM105 — the depth cap (§7.1)", () => {
   test("a work item's gates and an epic's work items coexist across the two levels", () => {
     const epic = issue({ labels: ["epic"], milestone: "v2.0.0" });
     const work = issue({ milestone: "v2.0.0" });
-    const g1 = issue({ labels: ["improvement:gate-1"], milestone: "v2.0.0" });
+    const g1 = issue({ labels: [INTENT], milestone: "v2.0.0" });
     expect(structural(tree([[work, epic], [g1, work]]))).toEqual([]);
   });
 });
 
-describe("PM013 — the complete gate set on the focused milestone (§9)", () => {
+describe("PM013 — the complete gate set on the focused milestone (§2)", () => {
   const focused = "v2.0.0";
+  const under = (work: Issue, labels: string[], state = "OPEN") =>
+    labels.map((l) => [issue({ labels: [l], milestone: work.milestone, state }), work] as [Issue, Issue]);
 
-  test("flags a work item on the cycle with no gates at all", () => {
+  test("flags an improvement on the cycle with no gates, naming both", () => {
     const work = issue({ milestone: focused });
     const found = checkIssues([], null, tree([], [work]), focused);
-    expect(found.map((v) => v.rule)).toContain("PM013");
-    expect(found.find((v) => v.rule === "PM013")!.message).toContain("gate(s) 1, 2, 3");
+    expect(found.find((v) => v.rule === "PM013")!.message).toContain("`intent` and `proof`");
   });
 
-  test("flags a partial set", () => {
+  test("flags a partial set — intent without proof", () => {
     const work = issue({ milestone: focused });
-    const g1 = issue({ labels: ["improvement:gate-1"], milestone: focused });
-    expect(structural(tree([[g1, work]]), focused)).toContain("PM013");
+    expect(structural(tree(under(work, [INTENT])), focused)).toContain("PM013");
   });
 
-  // The exemption has to hold for a release-gate that DOES carry a type label, not merely for a
-  // bare one. PM010 no longer requires the label, but existing repos have release-gates that were
-  // labelled to satisfy the old rule, and an exemption that only covers the tidy case leaves every
-  // one of those still failing.
-  test("silent on a release obligation, which has no design→plan→impl arc", () => {
+  test("a retired gate does not stand in for a live one", () => {
+    // The 4.0 migration folds an old PLAN gate onto gate:retired. It must not count as a proof.
+    const work = issue({ milestone: focused });
+    expect(structural(tree(under(work, [INTENT, RETIRED_GATE], "CLOSED")), focused)).toContain("PM013");
+  });
+
+  test("silent on a release obligation, which has no gates", () => {
     const bare = issue({ labels: ["release-gate"], milestone: focused });
     expect(structural(tree([], [bare]), focused)).not.toContain("PM013");
-
     const typed = issue({ labels: ["improvement", "release-gate"], milestone: focused });
     expect(structural(tree([], [typed]), focused)).not.toContain("PM013");
   });
 
   test("silent on a complete set", () => {
     const work = issue({ milestone: focused });
-    const gates = [1, 2, 3].map((n) => issue({ labels: [`improvement:gate-${n}`], milestone: focused }));
-    expect(structural(tree(gates.map((g) => [g, work] as [Issue, Issue])), focused)).toEqual([]);
+    expect(structural(tree(under(work, [INTENT, PROOF])), focused)).toEqual([]);
   });
 
-  test("a bugfix needs two gates, not three", () => {
+  test("a plain bugfix owes nothing", () => {
     const work = issue({ labels: ["bugfix"], milestone: focused });
-    const gates = [1, 2].map((n) => issue({ labels: [`bugfix:gate-${n}`], milestone: focused }));
-    expect(structural(tree(gates.map((g) => [g, work] as [Issue, Issue])), focused)).toEqual([]);
+    expect(structural(tree([], [work]), focused)).toEqual([]);
+  });
+
+  test("a hotfix owes its warrant", () => {
+    const work = issue({ labels: ["bugfix", "hotfix"], milestone: focused });
+    expect(structural(tree([], [work]), focused)).toContain("PM013");
+    expect(structural(tree(under(work, [WARRANT])), focused)).toEqual([]);
+  });
+
+  test("a hotfix on an open patch milestone owes its warrant, though the patch is not the cycle", () => {
+    // v2.0.1 patches a released line while v2.1.0 is the cycle; a patch milestone is in flight.
+    const work = issue({ labels: ["bugfix", "hotfix"], milestone: "v2.0.1" });
+    const found = checkIssues([], null, tree([], [work]), "v2.1.0");
+    expect(found.find((v) => v.rule === "PM013")!.fix).toContain("--milestone v2.0.1");
   });
 
   test("silent for work milestoned BEYOND the cycle — scheduling is not focus", () => {
@@ -170,11 +195,7 @@ describe("PM013 — the complete gate set on the focused milestone (§9)", () =>
 
   test("counts a CLOSED gate as present — the reason parentage is unscoped", () => {
     const work = issue({ milestone: focused });
-    const gates = [1, 2, 3].map((n) =>
-      issue({ labels: [`improvement:gate-${n}`], milestone: focused, state: "CLOSED" }),
-    );
-    // The linted set is open-only and contains none of these gates. The rule still sees them.
-    expect(structural(tree(gates.map((g) => [g, work] as [Issue, Issue])), focused)).not.toContain("PM013");
+    expect(structural(tree(under(work, [INTENT, PROOF], "CLOSED")), focused)).not.toContain("PM013");
   });
 
   test("the fix names the materialize command", () => {
@@ -184,46 +205,36 @@ describe("PM013 — the complete gate set on the focused milestone (§9)", () =>
   });
 });
 
-describe("PM016 — every gate closed, work item still open (§9)", () => {
-  const closedGates = (type: string, ordinals: number[], milestone: string | null = "v2.0.0") =>
-    ordinals.map((n) => issue({ labels: [`${type}:gate-${n}`], milestone, state: "CLOSED" }));
+describe("PM016 — an experiment whose verdict is closed is finished (§4)", () => {
+  const closedGates = (labels: string[]) => labels.map((l) => issue({ labels: [l], state: "CLOSED" }));
 
-  test("warns when all three gates are closed and the parent is open", () => {
-    const work = issue({ milestone: "v2.0.0" });
-    const found = checkIssues([], null, tree(closedGates("improvement", [1, 2, 3]).map((g) => [g, work] as [Issue, Issue])));
+  test("warns when charter and verdict are closed and the experiment is open", () => {
+    const work = issue({ labels: ["experiment"] });
+    const found = checkIssues([], null, tree(closedGates([CHARTER, VERDICT]).map((g) => [g, work] as [Issue, Issue])));
     const pm016 = found.find((v) => v.rule === "PM016");
-    expect(pm016).toBeDefined();
-    expect(pm016!.severity).toBe("warn");
+    expect(pm016?.severity).toBe("warn");
   });
 
-  test("silent once the parent is closed — the normal terminal state", () => {
-    const work = issue({ milestone: "v2.0.0", state: "CLOSED" });
-    expect(structural(tree(closedGates("improvement", [1, 2, 3]).map((g) => [g, work] as [Issue, Issue])))).toEqual([]);
+  test("silent once the experiment is closed", () => {
+    const work = issue({ labels: ["experiment"], state: "CLOSED" });
+    expect(structural(tree(closedGates([CHARTER, VERDICT]).map((g) => [g, work] as [Issue, Issue])))).toEqual([]);
   });
 
-  test("silent while any gate is still open", () => {
-    const work = issue({ milestone: "v2.0.0" });
-    const gates = [
-      ...closedGates("improvement", [1, 2]),
-      issue({ labels: ["improvement:gate-3"], milestone: "v2.0.0" }),
-    ];
+  test("silent while the verdict is open", () => {
+    const work = issue({ labels: ["experiment"] });
+    const gates = [...closedGates([CHARTER]), issue({ labels: [VERDICT] })];
     expect(structural(tree(gates.map((g) => [g, work] as [Issue, Issue])))).not.toContain("PM016");
   });
 
-  test("silent when the set is incomplete — that is PM013's finding, not this one", () => {
+  test("silent for an improvement past proof — it is being BUILT, which is legitimately open", () => {
     const work = issue({ milestone: "v2.0.0" });
-    expect(structural(tree(closedGates("improvement", [1, 2]).map((g) => [g, work] as [Issue, Issue])))).not.toContain("PM016");
-  });
-
-  test("fires for a bugfix at two closed gates", () => {
-    const work = issue({ labels: ["bugfix"], milestone: "v2.0.0" });
-    expect(structural(tree(closedGates("bugfix", [1, 2]).map((g) => [g, work] as [Issue, Issue])))).toContain("PM016");
+    const gates = closedGates([INTENT, PROOF]).map((g) => ({ ...g, milestone: "v2.0.0" }));
+    expect(structural(tree(gates.map((g) => [g, work] as [Issue, Issue])))).not.toContain("PM016");
   });
 
   test("fires under the default open-only scope, from the unscoped index", () => {
-    const work = issue({ milestone: "v2.0.0" });
-    const t = tree(closedGates("improvement", [1, 2, 3]).map((g) => [g, work] as [Issue, Issue]));
-    // `issues` holds only the open parent; every gate is closed and therefore absent from it.
+    const work = issue({ labels: ["experiment"] });
+    const t = tree(closedGates([CHARTER, VERDICT]).map((g) => [g, work] as [Issue, Issue]));
     expect(checkIssues([work], null, t).map((v) => v.rule)).toContain("PM016");
   });
 });

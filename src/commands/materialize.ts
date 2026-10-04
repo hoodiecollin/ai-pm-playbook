@@ -1,46 +1,46 @@
 /**
- * `pm-playbook materialize` — create a work item's gate sub-issues, as a complete set (§9).
+ * `pm-playbook materialize` — create a work item's gate sub-issues, as a complete set (§2).
  *
  * **Gates are never created by hand**, and that is the point rather than a convenience. If a human
  * could file one, "gate absent" would mean either *not materialized yet* or *nobody wrote it*, and
- * nothing could tell the two apart — the same failure §5.2 describes for the asset ledger, where an
- * absent row and a "no change" row look identical and mean opposite things. Tool-only creation is
- * what lets PM013 be trusted.
+ * nothing could tell the two apart. Tool-only creation is what lets PM013 be trusted.
  *
- * Two triggers, and the asymmetry is deliberate (§9):
- *   - **Spine types** (`improvement`, `bugfix`) materialize by MILESTONE, defaulting to the cycle in
- *     flight. Cycle rollover is therefore the moment the next batch of work gets its gates.
+ * Two triggers, and the asymmetry is deliberate:
+ *   - **Spine types** (`improvement`, and a `hotfix` bugfix) materialize by MILESTONE, defaulting to
+ *     the cycle in flight. A plain bugfix owes no gates, so nothing is created for one.
  *   - **`experiment`** materializes by DECISION, one issue at a time via `--issue`, because it never
  *     carries a milestone and the mechanical trigger can never fire for it.
  *
- * §5.5 constrains the implementation: creating N sub-issues can fail partway, so this must be
- * re-runnable rather than all-or-nothing. It is idempotent two ways — it only creates gates that are
- * missing, and it ADOPTS an orphan gate (created, but never linked, because the run died in between)
- * instead of creating a second copy of it.
+ * Creating N sub-issues can fail partway, so this must be re-runnable rather than all-or-nothing. It
+ * is idempotent two ways — it only creates gates that are missing, and it ADOPTS an orphan gate
+ * (created, but never linked, because the run died in between) instead of creating a second copy.
  */
 
-import { GATES, currentCycle, gateLabel, gateOf, workTypeOf, type WorkType } from "../lib/model.js";
+import {
+  GATES, GATE_MARKER_RE, currentCycle, gateLabel, gateMarker, gateOf, gatesFor, workTypeOf, type WorkType,
+} from "../lib/model.js";
 import { addSubIssue, createIssue, detectRepo, fetchParentage, issueBody, listMilestones, requireGh } from "../lib/gh.js";
 import type { Issue } from "../lib/gh.js";
 import { bool, str, type Args } from "../lib/args.js";
 
-/** The marker that makes an unlinked gate recoverable. Written into every gate body on creation. */
-const PARENT_MARKER = (parent: number) => `<!-- pm-playbook:gate parent=#${parent} -->`;
+function spec(type: WorkType, n: number) {
+  return GATES[type].find((g) => g.n === n)!;
+}
 
 function gateTitle(type: WorkType, n: number, parentTitle: string): string {
-  const verb = GATES[type][n - 1]!.verb;
-  return `Gate ${n} — ${verb}: ${parentTitle}`;
+  const verb = spec(type, n).verb;
+  return `${verb[0]!.toUpperCase()}${verb.slice(1)}: ${parentTitle}`;
 }
 
 function gateBody(type: WorkType, n: number, parent: Issue): string {
-  const spec = GATES[type][n - 1]!;
+  const s = spec(type, n);
   return [
-    PARENT_MARKER(parent.number),
+    gateMarker(parent.number),
     "",
-    `> ${spec.description}`,
+    `> ${s.description}`,
     `> Parent: #${parent.number}`,
     "",
-    spec.seed,
+    s.seed,
     "",
   ].join("\n");
 }
@@ -115,7 +115,7 @@ export async function materialize(args: Args, repoRoot: string): Promise<number>
   const candidates = [...parentage.all].filter(([n, i]) => gateOf(i.labels) && !parentage.parentOf.has(n));
   for (const [n, i] of candidates) {
     const body = await issueBody(repo, n).catch(() => "");
-    const m = /pm-playbook:gate parent=#(\d+)/.exec(body);
+    const m = GATE_MARKER_RE.exec(body);
     if (m) orphans.set(`${m[1]}:${gateOf(i.labels)!.n}`, n);
   }
 
@@ -147,7 +147,7 @@ export async function materialize(args: Args, repoRoot: string): Promise<number>
       if (g) present.add(g.n);
     }
 
-    for (const spec of GATES[type]) {
+    for (const spec of gatesFor(type, parent.labels)) {
       if (present.has(spec.n)) continue;
       pending.push({ parent, type, n: spec.n, orphan: orphans.get(`${parent.number}:${spec.n}`) ?? null });
     }

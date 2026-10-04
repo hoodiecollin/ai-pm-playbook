@@ -10,11 +10,11 @@
 
 import { describe, expect, test } from "bun:test";
 import {
-  CORE_LABELS, GATES, GATE_LABELS, MAX_LABEL_DESCRIPTION, TYPE_LABELS, WORK_TYPES, gateLabel, surfaceLabel,
+  CORE_LABELS, GATES, GATE_LABELS, MAX_LABEL_DESCRIPTION, RETIRED_GATE_LABEL, TYPE_LABELS, WORK_TYPES, gateLabel, surfaceLabel,
 } from "../src/lib/model.js";
 
 describe("label descriptions fit GitHub's limit", () => {
-  for (const l of CORE_LABELS) {
+  for (const l of [...CORE_LABELS, RETIRED_GATE_LABEL]) {
     test(`${l.name} (${l.description.length} chars)`, () => {
       expect(l.description.length).toBeLessThanOrEqual(MAX_LABEL_DESCRIPTION);
     });
@@ -32,7 +32,7 @@ describe("the short form is a real sentence, not a truncation", () => {
   for (const type of WORK_TYPES) {
     for (const g of GATES[type]) {
       test(`${gateLabel(type, g.n)} names its gate and ends cleanly`, () => {
-        expect(g.labelDescription).toStartWith(`Gate ${g.n} —`);
+        expect(g.labelDescription).toStartWith(`${g.verb[0]!.toUpperCase()}${g.verb.slice(1)}`);
         expect(g.labelDescription).toEndWith(".");
         // A truncation would end mid-word with an ellipsis; a rewrite does not.
         expect(g.labelDescription).not.toContain("…");

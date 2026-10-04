@@ -44,7 +44,7 @@ async function capture(fn: () => Promise<number>): Promise<{ code: number; out: 
 const CYCLE = [{ number: 1, title: "v1.0.0", state: "open" }];
 
 describe("ladder — derives the rung from gate state", () => {
-  test("an ungated milestoned improvement reads design-next, exit 0", async () => {
+  test("an ungated milestoned improvement reads intent-next, exit 0", async () => {
     gh.reset();
     gh.set({ milestones: CYCLE, parentage: parentageOf([issue(1, ["improvement"], "v1.0.0")]) });
 
@@ -53,7 +53,7 @@ describe("ladder — derives the rung from gate state", () => {
 
     expect(code).toBe(0);
     const items = JSON.parse(out).items ?? JSON.parse(out);
-    expect(JSON.stringify(items)).toContain("design-next");
+    expect(JSON.stringify(items)).toContain("intent-next");
   });
 
   test("an unmilestoned improvement reads idea — a milestone means committed", async () => {

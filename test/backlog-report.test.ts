@@ -12,6 +12,7 @@ import { buildReport } from "../src/lib/backlog/report.js";
 import { MAX_WIDTH, renderReport } from "../src/lib/backlog/render.js";
 import { SUMMARY_HEADING } from "../src/lib/backlog/summary.js";
 import type { BacklogEntity, EntityKind } from "../src/lib/backlog/model.js";
+import { gateLabel } from "../src/lib/model.js";
 
 let counter = 0;
 function entity(partial: Partial<BacklogEntity> = {}): BacklogEntity {
@@ -27,7 +28,7 @@ function entity(partial: Partial<BacklogEntity> = {}): BacklogEntity {
 }
 
 const gate = (number: number, parent: number, n: number, state: "OPEN" | "CLOSED" = "OPEN") =>
-  entity({ number, parent, kind: "gate", labels: [`improvement:gate-${n}`], state });
+  entity({ number, parent, kind: "gate", labels: [gateLabel("improvement", n)], state });
 
 const widest = (s: string) => Math.max(...s.split("\n").map((l) => l.length));
 
@@ -92,10 +93,10 @@ describe("buildReport — what is excluded", () => {
 describe("buildReport — per item", () => {
   test("the rung comes from ladderState, and gate marks show closed vs open", () => {
     const work = entity({ number: 1 });
-    const items = [work, gate(2, 1, 1, "CLOSED"), gate(3, 1, 2), gate(4, 1, 3)];
+    const items = [work, gate(2, 1, 1, "CLOSED"), gate(3, 1, 2)];
     const line = buildReport(items, "v1.0.0").buckets[0]!.improvements[0]!;
-    expect(line.rung).toBe("plan-pending");
-    expect(line.gates).toEqual([{ n: 1, closed: true }, { n: 2, closed: false }, { n: 3, closed: false }]);
+    expect(line.rung).toBe("proof-pending");
+    expect(line.gates).toEqual([{ n: 1, closed: true }, { n: 2, closed: false }]);
   });
 
   test("a body with no summary slot yields null — never a fallback to the first section", () => {

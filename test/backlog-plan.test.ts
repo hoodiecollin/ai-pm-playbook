@@ -226,7 +226,7 @@ describe("refusing to comment on something we cannot trust we have read", () => 
   });
 
   test("a gate resolves like any other kind — it is the most common target", () => {
-    const gate = { ...entity(16, "gate body\n"), kind: "gate" as const, parent: 4, labels: ["improvement:gate-1"] };
+    const gate = { ...entity(16, "gate body\n"), kind: "gate" as const, parent: 4, labels: ["gate:intent"] };
     expect(planComment(baseOf(gate), map(gate), map(gate), 16)).toEqual({ ok: true, target: gate });
   });
 

@@ -1,15 +1,18 @@
 /**
  * The derived commitment ladder (§2).
  *
- * One test per row of all three tables in the design, plus the property that makes the whole thing
- * safe: exactly one state, always. A table of independent conditions could produce two answers; a
- * walk cannot, and these tests are what hold that.
+ * One test per rung of each type, plus the property that makes the whole thing safe: exactly one
+ * state, always. A table of independent conditions could produce two answers; a walk cannot, and
+ * these tests are what hold that.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { LADDER_STATES, ladderState, type WorkItemView } from "../src/lib/ladder.js";
-import { GATES, WORK_TYPES, allGateLabels, gateLabel, gateOf, parseGateLabel, workTypeOf, isPatchMilestone } from "../src/lib/model.js";
+import {
+  GATES, RETIRED_GATE, WORK_TYPES, allGateLabels, gateLabel, gateOf, gatesFor, isLegacyGateLabel,
+  isPatchMilestone, parseGateLabel, workTypeOf,
+} from "../src/lib/model.js";
 
 const item = (over: Partial<WorkItemView> = {}): WorkItemView => ({
   number: 1,
@@ -24,118 +27,119 @@ const open = (n: number) => ({ n, state: "OPEN" as const });
 const closed = (n: number) => ({ n, state: "CLOSED" as const });
 
 describe("improvement ladder", () => {
-  test("no gate-1, no milestone → idea", () => {
+  test("no gates, no milestone → idea", () => {
     expect(ladderState(item()).state).toBe("idea");
   });
-  test("no gate-1, milestone → design-next", () => {
-    expect(ladderState(item({ milestone: "v2.0.0" })).state).toBe("design-next");
+  test("no gates, milestone → intent-next", () => {
+    expect(ladderState(item({ milestone: "v2.0.0" })).state).toBe("intent-next");
   });
-  test("gate-1 open → design-pending", () => {
-    expect(ladderState(item({ milestone: "v2.0.0", gates: [open(1)] })).state).toBe("design-pending");
+  test("intent open → intent-pending", () => {
+    expect(ladderState(item({ milestone: "v2.0.0", gates: [open(1)] })).state).toBe("intent-pending");
   });
-  test("gate-1 closed, no gate-2 → plan-next", () => {
-    expect(ladderState(item({ milestone: "v2.0.0", gates: [closed(1)] })).state).toBe("plan-next");
+  test("intent closed, no proof → proof-next", () => {
+    expect(ladderState(item({ milestone: "v2.0.0", gates: [closed(1)] })).state).toBe("proof-next");
   });
-  test("gate-2 open → plan-pending", () => {
-    expect(ladderState(item({ milestone: "v2.0.0", gates: [closed(1), open(2)] })).state).toBe("plan-pending");
+  test("proof open → proof-pending", () => {
+    expect(ladderState(item({ milestone: "v2.0.0", gates: [closed(1), open(2)] })).state).toBe("proof-pending");
   });
-  test("gate-2 closed, no gate-3 → impl-next", () => {
-    expect(ladderState(item({ milestone: "v2.0.0", gates: [closed(1), closed(2)] })).state).toBe("impl-next");
-  });
-  test("gate-3 open → impl-pending, which IS §2's in-flight rung", () => {
-    expect(ladderState(item({ milestone: "v2.0.0", gates: [closed(1), closed(2), open(3)] })).state).toBe("impl-pending");
-  });
-  test("all gates closed, parent open → complete", () => {
-    const l = ladderState(item({ milestone: "v2.0.0", gates: [closed(1), closed(2), closed(3)] }));
-    expect(l.state).toBe("complete");
+  test("both closed, parent open → build, the in-flight rung", () => {
+    const l = ladderState(item({ milestone: "v2.0.0", gates: [closed(1), closed(2)] }));
+    expect(l.state).toBe("build");
     expect(l.complete).toBe(true);
   });
   test("parent closed on a milestone → closed-in-milestone", () => {
-    const l = ladderState(item({ state: "CLOSED", milestone: "v2.0.0", gates: [closed(1), closed(2), closed(3)] }));
+    const l = ladderState(item({ state: "CLOSED", milestone: "v2.0.0", gates: [closed(1), closed(2)] }));
     expect(l.state).toBe("closed-in-milestone");
+  });
+  test("a retired gate (ordinal 0) is history, not a stage", () => {
+    expect(ladderState(item({ milestone: "v2.0.0", gates: [closed(1), open(0)] })).state).toBe("proof-next");
   });
 });
 
 describe("bugfix ladder", () => {
   const bug = (over: Partial<WorkItemView> = {}) => item({ type: "bugfix", ...over });
 
-  test("no gate-1, no milestone → triage-next", () => {
+  test("no milestone → triage-next", () => {
     expect(ladderState(bug()).state).toBe("triage-next");
   });
-  test("no gate-1, milestone → diagnose-next", () => {
-    expect(ladderState(bug({ milestone: "v2.0.0" })).state).toBe("diagnose-next");
+  test("milestoned → fix: a plain bugfix owes no gates", () => {
+    const l = ladderState(bug({ milestone: "v2.0.0" }));
+    expect(l.state).toBe("fix");
+    expect(l.complete).toBe(true);
   });
-  test("gate-1 open → diagnose-pending", () => {
-    expect(ladderState(bug({ milestone: "v2.0.0", gates: [open(1)] })).state).toBe("diagnose-pending");
-  });
-  test("gate-1 closed → fix-next", () => {
-    expect(ladderState(bug({ milestone: "v2.0.0", gates: [closed(1)] })).state).toBe("fix-next");
-  });
-  test("gate-2 open → fix-pending", () => {
-    expect(ladderState(bug({ milestone: "v2.0.0", gates: [closed(1), open(2)] })).state).toBe("fix-pending");
-  });
-  test("two gates, not three — a closed gate-2 completes it", () => {
-    expect(ladderState(bug({ milestone: "v2.0.0", gates: [closed(1), closed(2)] })).complete).toBe(true);
+  test("a hotfix owes its warrant first", () => {
+    expect(ladderState(bug({ hotfix: true, milestone: "v2.0.1" })).state).toBe("warrant-next");
+    expect(ladderState(bug({ hotfix: true, milestone: "v2.0.1", gates: [open(1)] })).state).toBe("warrant-pending");
+    expect(ladderState(bug({ hotfix: true, milestone: "v2.0.1", gates: [closed(1)] })).state).toBe("fix");
   });
 });
 
 describe("experiment ladder", () => {
   const exp = (over: Partial<WorkItemView> = {}) => item({ type: "experiment", ...over });
 
-  test("no gates → research-next, which means NOT STARTED", () => {
-    expect(ladderState(exp()).state).toBe("research-next");
+  test("no gates → charter-next, which means NOT STARTED", () => {
+    expect(ladderState(exp()).state).toBe("charter-next");
   });
   test("no pre-schedule split — an experiment never has a milestone to lack", () => {
-    // The improvement in the same position is `idea`; the experiment skips that rung entirely.
     expect(ladderState(exp()).state).not.toBe("idea");
   });
-  test("gate-1 open → research-pending", () => {
-    expect(ladderState(exp({ gates: [open(1)] })).state).toBe("research-pending");
+  test("charter open → charter-pending", () => {
+    expect(ladderState(exp({ gates: [open(1)] })).state).toBe("charter-pending");
   });
-  test("gate-1 closed → evaluate-next", () => {
-    expect(ladderState(exp({ gates: [closed(1)] })).state).toBe("evaluate-next");
+  test("charter closed → verdict-next", () => {
+    expect(ladderState(exp({ gates: [closed(1)] })).state).toBe("verdict-next");
   });
-  test("gate-2 open → evaluate-pending", () => {
-    expect(ladderState(exp({ gates: [closed(1), open(2)] })).state).toBe("evaluate-pending");
+  test("verdict open → verdict-pending", () => {
+    expect(ladderState(exp({ gates: [closed(1), open(2)] })).state).toBe("verdict-pending");
+  });
+  test("verdict closed → complete: the verdict is the deliverable", () => {
+    expect(ladderState(exp({ gates: [closed(1), closed(2)] })).state).toBe("complete");
   });
 });
 
 describe("ordering is a walk, not a table of conditions", () => {
   test("a gap in the sequence resolves to the FIRST missing gate", () => {
-    // Gate 3 exists but gate 2 does not. First-match must say plan-next, never impl-pending.
-    expect(ladderState(item({ milestone: "v2.0.0", gates: [closed(1), open(3)] })).state).toBe("plan-next");
+    // Proof exists but intent does not. First-match must say intent-next, never proof-pending.
+    expect(ladderState(item({ milestone: "v2.0.0", gates: [open(2)] })).state).toBe("intent-next");
   });
   test("every work type yields exactly one state for every gate combination", () => {
     for (const type of WORK_TYPES) {
-      const specs = GATES[type];
-      // Every combination of absent / open / closed across the type's gates, as base-3 digits.
-      for (let mask = 0; mask < 3 ** specs.length; mask++) {
-        const gates = specs
-          .map((s, i) => {
-            const digit = Math.floor(mask / 3 ** i) % 3;
-            return digit === 0 ? null : { n: s.n, state: digit === 1 ? ("OPEN" as const) : ("CLOSED" as const) };
-          })
-          .filter((g): g is { n: number; state: "OPEN" | "CLOSED" } => g !== null);
-        const l = ladderState(item({ type, gates, milestone: "v2.0.0" }));
-        expect(typeof l.state).toBe("string");
-        expect(LADDER_STATES[type]).toContain(l.state);
+      for (const hotfix of [false, true]) {
+        const specs = gatesFor(type, hotfix ? ["hotfix"] : []);
+        for (let mask = 0; mask < 3 ** specs.length; mask++) {
+          const gates = specs
+            .map((s, i) => {
+              const digit = Math.floor(mask / 3 ** i) % 3;
+              return digit === 0 ? null : { n: s.n, state: digit === 1 ? ("OPEN" as const) : ("CLOSED" as const) };
+            })
+            .filter((g): g is { n: number; state: "OPEN" | "CLOSED" } => g !== null);
+          const l = ladderState(item({ type, hotfix, gates, milestone: "v2.0.0" }));
+          expect(LADDER_STATES[type]).toContain(l.state);
+        }
       }
     }
   });
 });
 
-
 describe("the taxonomy is generated from one table", () => {
-  test("seven gate labels, prefixed by type", () => {
-    expect(allGateLabels()).toEqual([
-      "improvement:gate-1", "improvement:gate-2", "improvement:gate-3",
-      "bugfix:gate-1", "bugfix:gate-2",
-      "experiment:gate-1", "experiment:gate-2",
-    ]);
+  test("five live gate labels, named by verb", () => {
+    expect(allGateLabels()).toEqual(["gate:intent", "gate:proof", "gate:warrant", "gate:charter", "gate:verdict"]);
   });
-  test("parseGateLabel rejects an ordinal the type does not define", () => {
-    expect(parseGateLabel("bugfix:gate-3")).toBeNull();
-    expect(parseGateLabel(gateLabel("improvement", 3))).toEqual({ type: "improvement", n: 3 });
+  test("every verb is unique across types, so the verb alone names the gate", () => {
+    const verbs = WORK_TYPES.flatMap((t) => GATES[t].map((g) => g.verb));
+    expect(new Set(verbs).size).toBe(verbs.length);
+  });
+  test("parseGateLabel round-trips gateLabel, and rejects an unknown verb", () => {
+    expect(parseGateLabel(gateLabel("improvement", 2))).toEqual({ type: "improvement", n: 2, verb: "proof", retired: false });
+    expect(parseGateLabel("gate:design")).toBeNull();
+  });
+  test("a pre-4.0 label is a gate structurally, but no stage of the 4.x model", () => {
+    expect(parseGateLabel("improvement:gate-2")).toEqual({ type: null, n: 0, verb: "legacy", retired: true });
+    expect(isLegacyGateLabel("improvement:gate-2")).toBe(true);
+    expect(isLegacyGateLabel(gateLabel("improvement", 2))).toBe(false);
+  });
+  test("gate:retired is a gate, but belongs to no type and no stage", () => {
+    expect(gateOf([RETIRED_GATE])).toEqual({ type: null, n: 0, verb: "retired", retired: true });
   });
   test("a bare type label is not a gate label", () => {
     expect(parseGateLabel("improvement")).toBeNull();
@@ -147,7 +151,12 @@ describe("the taxonomy is generated from one table", () => {
     expect(workTypeOf(["epic"])).toBeNull();
   });
   test("gateOf finds the gate among other labels", () => {
-    expect(gateOf(["release-gate", "improvement:gate-2"])).toEqual({ type: "improvement", n: 2 });
+    expect(gateOf(["release-gate", gateLabel("improvement", 2)])?.verb).toBe("proof");
+  });
+  test("only a hotfix owes the warrant", () => {
+    expect(gatesFor("bugfix", [])).toEqual([]);
+    expect(gatesFor("bugfix", ["hotfix"]).map((g) => g.verb)).toEqual(["warrant"]);
+    expect(gatesFor("improvement", ["hotfix"]).map((g) => g.verb)).toEqual(["intent", "proof"]);
   });
 });
 
